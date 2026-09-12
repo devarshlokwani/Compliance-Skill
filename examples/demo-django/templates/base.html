@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document</title>
+  <link rel="stylesheet" href="http://cdn.oldhost.example/reset.css">
+  <style>
+    a, button, input { outline: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="{% static 'logo.png' %}" width="120" height="32">
+    <nav>
+      <div onclick="location.href='/pricing/'">Pricing</div>
+    </nav>
+  </header>
+
+  {% block content %}{% endblock %}
+
+  <footer>
+    <p>&copy; 2026 MeetingNotes</p>
+  </footer>
+</body>
+</html>

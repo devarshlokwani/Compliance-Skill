@@ -35,6 +35,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
@@ -111,8 +112,11 @@ CODE_EXTS = {
 MARKUP_EXTS = {".html", ".htm", ".tsx", ".jsx", ".vue", ".svelte", ".astro",
                ".ejs", ".erb", ".hbs", ".liquid", ".php", ".md", ".mdx"}
 
+# Stylesheets, plus anything that can carry an inline <style> block. Server-
+# rendered templates keep their CSS in the document more often than SPAs do.
 STYLE_EXTS = {".css", ".scss", ".sass", ".less", ".styl", ".tsx", ".jsx",
-              ".ts", ".js", ".vue", ".svelte", ".astro"}
+              ".ts", ".js", ".vue", ".svelte", ".astro",
+              ".html", ".htm", ".erb", ".ejs", ".hbs", ".liquid", ".php"}
 
 MAX_FILE_BYTES = 1_500_000
 MAX_FILES = 20_000
@@ -271,6 +275,13 @@ FINDING_BASIS: dict[str, str] = {
     "mechanism.export-missing": "inference",
     "docs.subprocessors-missing": "inference",
     "docs.cookie-policy-missing": "inference",
+    # Absence *inside* a document that exists is as reliable as absence of the
+    # file itself -- the name is either in the text or it is not.
+    "docs.policy-omits-service": "absence",
+    "docs.policy-undated": "absence",
+    "docs.placeholder-published": "pattern",
+    "docs.policy-stale": "pattern",
+    "secret.in-history": "pattern",
 }
 
 BASIS_NOTE = {
@@ -828,6 +839,70 @@ SERVICES: list[dict] = [
 
 
 # --------------------------------------------------------------------------
+# Compiled service matchers
+# --------------------------------------------------------------------------
+#
+# Everything here is built once. The naive version -- constructing a pattern
+# string per service per line -- costs tens of millions of re.escape calls on
+# a real codebase, which is slow enough to make people delete the CI step.
+
+
+@dataclass
+class ServiceMatcher:
+    name: str
+    package_rx: re.Pattern | None
+    module_rx: re.Pattern | None
+    env_rx: re.Pattern | None
+    host_rx: re.Pattern | None
+
+
+def _alt(parts: Sequence[str]) -> re.Pattern | None:
+    return re.compile("|".join(parts)) if parts else None
+
+
+_SERVICE_MATCHERS: list[ServiceMatcher] | None = None
+
+
+def build_service_matchers() -> list[ServiceMatcher]:
+    global _SERVICE_MATCHERS
+    if _SERVICE_MATCHERS is not None:
+        return _SERVICE_MATCHERS
+    built: list[ServiceMatcher] = []
+    for svc in SERVICES:
+        built.append(ServiceMatcher(
+            name=svc["name"],
+            package_rx=_alt([r"""["']""" + re.escape(p) + r"""[^"']*["']\s*:""" for p in svc["packages"]]
+                            + [r"^\s*" + re.escape(p) + r"[\s=><~^!\[]" for p in svc["packages"]]),
+            module_rx=_alt([r"""(?:from|import|require\()\s*["']""" + re.escape(m)
+                            for m in svc["modules"]]),
+            env_rx=_alt([ENV_USE_TEMPLATE.format(env=re.escape(e)) for e in svc["envs"]]),
+            host_rx=_alt([r"(?://|@|\bhttps?:)[^\s\"'`]*" + re.escape(h) for h in svc["hosts"]]),
+        ))
+    _SERVICE_MATCHERS = built
+    return built
+
+
+def _service_needles() -> list[str]:
+    """Literal fragments that must appear before a line is worth examining."""
+    needles: set[str] = set()
+    for svc in SERVICES:
+        for group in ("packages", "modules", "envs", "hosts"):
+            for value in svc[group]:
+                # The shortest distinctive piece: hostnames reduce to their
+                # registrable part, scoped packages to the scope.
+                token = value.strip("@/_-")
+                if not token:
+                    continue
+                needles.add(token.split("/")[0].split(".")[0])
+    return sorted(n for n in needles if len(n) >= 2)
+
+
+# A single cheap pass that rejects lines mentioning nothing service-shaped.
+SERVICE_PRESCREEN = re.compile(
+    "|".join(re.escape(n) for n in _service_needles()), re.I)
+
+
+# --------------------------------------------------------------------------
 # Personal-data field vocabulary
 # --------------------------------------------------------------------------
 #
@@ -883,6 +958,26 @@ PII_CONTEXT_TEMPLATES = [
 PII_FILE_EXTS = {".prisma", ".sql", ".ts", ".tsx", ".js", ".jsx", ".py", ".rb",
                  ".go", ".java", ".kt", ".swift", ".php", ".cs", ".graphql",
                  ".gql", ".vue", ".svelte", ".astro", ".html"}
+
+# One cheap pass to reject lines containing no personal-data vocabulary at all,
+# before any of the per-token context patterns run.
+PII_PRESCREEN = re.compile("|".join(tok for tok, *_ in PII_TOKENS), re.I)
+
+_PII_MATCHERS: list[tuple[str, str, bool, list[re.Pattern]]] | None = None
+
+
+def build_pii_matchers() -> list[tuple[str, str, bool, list[re.Pattern]]]:
+    global _PII_MATCHERS
+    if _PII_MATCHERS is not None:
+        return _PII_MATCHERS
+    built = []
+    for token_rx, label, category, high_risk, subset in PII_TOKENS:
+        templates = (PII_CONTEXT_TEMPLATES if subset is None
+                     else [PII_CONTEXT_TEMPLATES[i] for i in subset])
+        built.append((label, category, high_risk,
+                      [re.compile(t.format(tok=token_rx), re.I) for t in templates]))
+    _PII_MATCHERS = built
+    return built
 
 
 # --------------------------------------------------------------------------
@@ -988,6 +1083,81 @@ SCHEMA_HOSTS = ("www.w3.org", "w3.org", "schema.org", "purl.org", "ns.adobe.com"
 CONSENT_WORDS = ("consent", "marketing", "newsletter", "subscribe", "terms",
                  "agree", "privacy", "opt-in", "optin", "updates", "emails",
                  "offers", "accept")
+
+
+# --------------------------------------------------------------------------
+# Document accuracy -- reading the documents that DO exist
+# --------------------------------------------------------------------------
+#
+# "Absence is reliable; presence is not" normally means saying nothing about a
+# document that exists, because we cannot prove it is accurate.
+#
+# But absence *inside* a present document is exactly as reliable as absence of
+# the file. If a privacy policy never contains the string "OpenAI" and the code
+# calls OpenAI, that is a fact. And it is the case this skill treats as the
+# worst one: a policy that is published and wrong is a written misstatement of
+# your practices, where no policy at all is merely a gap.
+
+# Where a service's name in prose differs from its name in the registry.
+# Default search term is the registry name, lowercased.
+SERVICE_ALIASES: dict[str, list[str]] = {
+    "NextAuth / Auth.js": ["nextauth", "auth.js", "authjs"],
+    "Google OAuth": ["google"],
+    "Google Analytics": ["google analytics", "google"],
+    "Google Gemini": ["gemini", "google"],
+    "Google Maps": ["google maps", "google"],
+    "Google Fonts": ["google fonts", "google"],
+    "Meta Pixel": ["meta", "facebook"],
+    "AWS S3": ["aws", "amazon", "s3"],
+    "Cloudflare R2": ["cloudflare", "r2"],
+    "MongoDB Atlas": ["mongodb", "mongo"],
+    "Vercel Analytics": ["vercel"],
+    "Vercel Blob": ["vercel"],
+    "React Native / Expo": ["expo", "react native"],
+    "Hugging Face": ["hugging face", "huggingface"],
+    "Vercel AI SDK": ["vercel"],
+    "Better Auth": ["better auth", "better-auth"],
+    "Lemon Squeezy": ["lemon squeezy", "lemonsqueezy"],
+}
+
+# Libraries that run inside your own process. They show up in the service
+# table for context, but no data leaves your infrastructure because of them,
+# so a policy that does not name them is not wrong -- and demanding that it
+# does would train people to ignore this check.
+NOT_A_RECIPIENT = {
+    "Prisma", "Drizzle", "Lucia", "Passport", "Better Auth",
+    "NextAuth / Auth.js", "LangChain", "Vercel AI SDK",
+}
+
+# An unfilled template bracket: [COMPANY NAME], [DATE], [PRIVACY EMAIL].
+# The lookahead keeps markdown links such as [LICENSE](LICENSE) out of it.
+PLACEHOLDER_IN_DOC_RE = re.compile(r"\[([A-Z][A-Z0-9 _/&.'-]{2,60})\](?!\()")
+
+DATE_MARKER_RE = re.compile(
+    r"(?:last\s+updated|last\s+revised|last\s+modified|effective(?:\s+date)?|updated)"
+    r"\s*[:\-—]?\s*\*{0,2}\s*([A-Za-z0-9][A-Za-z0-9 ,/.-]{5,30})",
+    re.I,
+)
+
+DATE_FORMATS = ("%Y-%m-%d", "%d %B %Y", "%d %b %Y", "%B %d, %Y", "%b %d, %Y",
+                "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%B %Y", "%d.%m.%Y")
+
+# How old a published policy has to be before it is worth mentioning. Long
+# enough that a stable product is not nagged, short enough to catch the policy
+# generated once and never revisited.
+STALE_AFTER_DAYS = 550
+
+
+def parse_doc_date(raw: str) -> datetime | None:
+    candidate = raw.strip().strip("*_.,;").strip()
+    for cut in range(len(candidate), 5, -1):
+        chunk = candidate[:cut].strip().rstrip(",.")
+        for fmt in DATE_FORMATS:
+            try:
+                return datetime.strptime(chunk, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+    return None
 
 
 def robots_blocks_everything(text: str) -> bool:
@@ -1192,46 +1362,43 @@ class Scan:
                 if f.ext in CODE_EXTS or f.name.startswith(".env")
                 or f.ext in {".yml", ".yaml", ".toml", ".json"}]
 
-        for svc in SERVICES:
-            hits: list[Evidence] = []
+        # Patterns are compiled once, and the files are walked once. Doing
+        # either per-service turns a 100k-line project into a minute of regex
+        # -- which is the same thing as a broken CI gate.
+        matchers = build_service_matchers()
+        hits_by_name: dict[str, list[Evidence]] = {}
 
-            for f in manifests:
-                for i, line in enumerate(f.text.splitlines(), 1):
-                    for pkg in svc["packages"]:
-                        if re.search(r"""["']""" + re.escape(pkg) + r"""[^"']*["']\s*:""", line) or \
-                           re.match(r"\s*" + re.escape(pkg) + r"[\s=><~^!\[]", line):
-                            hits.append(Evidence(f.path, i, snippet(line)))
-                            break
+        for f in manifests:
+            for i, line in enumerate(f.text.splitlines(), 1):
+                if not SERVICE_PRESCREEN.search(line):
+                    continue
+                for m in matchers:
+                    if m.package_rx is not None and m.package_rx.search(line):
+                        hits_by_name.setdefault(m.name, []).append(
+                            Evidence(f.path, i, snippet(line)))
 
-            for f in code:
-                for i, line in enumerate(f.text.splitlines(), 1):
-                    if len(line) > 500:
-                        continue
-                    matched = False
-                    for mod in svc["modules"]:
-                        if re.search(r"""(?:from|import|require\()\s*["']""" + re.escape(mod), line):
-                            matched = True
-                            break
+        for f in code:
+            for i, line in enumerate(f.text.splitlines(), 1):
+                if len(line) > 500:
+                    continue
+                # One cheap pass rejects the ~99% of lines that mention nothing
+                # service-shaped, before any per-service work happens.
+                if not SERVICE_PRESCREEN.search(line):
+                    continue
+                for m in matchers:
                     # An env var counts only where it is actually read or
-                    # assigned -- not where the name merely appears in a
-                    # string. Otherwise any file that documents service names
-                    # (a registry, a README table, this scanner) reads as a
-                    # dependency on all of them.
-                    if not matched:
-                        for env in svc["envs"]:
-                            if re.search(ENV_USE_TEMPLATE.format(env=re.escape(env)), line):
-                                matched = True
-                                break
-                    # Likewise a hostname counts inside a URL, not as a bare
-                    # substring.
-                    if not matched:
-                        for host in svc["hosts"]:
-                            if re.search(r"(?://|@|\bhttps?:)[^\s\"'`]*" + re.escape(host), line):
-                                matched = True
-                                break
-                    if matched:
-                        hits.append(Evidence(f.path, i, snippet(line)))
+                    # assigned, and a hostname only inside a URL -- not where
+                    # the name merely appears in a string. Otherwise any file
+                    # that documents service names (a registry, a README table,
+                    # this scanner) reads as a dependency on all of them.
+                    if ((m.module_rx is not None and m.module_rx.search(line))
+                            or (m.env_rx is not None and m.env_rx.search(line))
+                            or (m.host_rx is not None and m.host_rx.search(line))):
+                        hits_by_name.setdefault(m.name, []).append(
+                            Evidence(f.path, i, snippet(line)))
 
+        for svc in SERVICES:
+            hits = hits_by_name.get(svc["name"])
             if not hits:
                 continue
 
@@ -1251,25 +1418,36 @@ class Scan:
 
     def detect_personal_data(self) -> None:
         files = [f for f in self.text_files if f.ext in PII_FILE_EXTS]
-        for token_rx, label, category, high_risk, subset in PII_TOKENS:
-            templates = (PII_CONTEXT_TEMPLATES if subset is None
-                         else [PII_CONTEXT_TEMPLATES[i] for i in subset])
-            patterns = [re.compile(t.format(tok=token_rx), re.I) for t in templates]
-            hits: list[Evidence] = []
-            for f in files:
-                for i, line in enumerate(f.text.splitlines(), 1):
-                    if len(line) > 400:
+
+        # Compiled once, and the files walked once -- see detect_services for
+        # why that matters.
+        token_matchers = build_pii_matchers()
+        hits_by_label: dict[str, list[Evidence]] = {}
+        meta: dict[str, tuple[str, bool]] = {}
+
+        for f in files:
+            for i, line in enumerate(f.text.splitlines(), 1):
+                if len(line) > 400:
+                    continue
+                if not PII_PRESCREEN.search(line):
+                    continue
+                for label, category, high_risk, patterns in token_matchers:
+                    bucket = hits_by_label.setdefault(label, [])
+                    if len(bucket) >= 40:
                         continue
                     for rx in patterns:
                         if rx.search(line):
-                            hits.append(Evidence(f.path, i, snippet(line)))
+                            bucket.append(Evidence(f.path, i, snippet(line)))
+                            meta.setdefault(label, (category, high_risk))
                             break
-                    if len(hits) >= 40:
-                        break
-            if hits:
-                self.add_signal("personal_data", label,
-                                detail="high risk" if high_risk else "",
-                                category=category, evidence=hits)
+
+        for label, hits in hits_by_label.items():
+            if not hits:
+                continue
+            category, high_risk = meta[label]
+            self.add_signal("personal_data", label,
+                            detail="high risk" if high_risk else "",
+                            category=category, evidence=hits)
 
         # typed inputs in markup
         for f in self.by_ext(MARKUP_EXTS):
@@ -1650,6 +1828,122 @@ class Scan:
                 "`aria-label`. Keep the placeholder for an example value, not for the field name.",
                 "launch-readiness.md", placeholder_only)
 
+    # -- phase 3b: the documents that already exist -------------------------
+
+    LEGAL_DOC_KEYS = ("privacy", "terms", "cookies", "subprocessors")
+
+    def detect_document_accuracy(self) -> None:
+        """Check published legal documents against what the code does.
+
+        Only makes claims that absence supports: a name that is not in the
+        text, a bracket that was never filled, a date that is not there. It
+        never asserts that a document IS accurate -- that needs a human.
+        """
+        docs = self.document_presence()
+        by_path = {f.path.lower(): f for f in self.files}
+
+        paths: list[str] = []
+        for key in self.LEGAL_DOC_KEYS:
+            paths.extend(docs.get(key, []))
+        legal = [by_path[p] for p in dict.fromkeys(paths)
+                 if p in by_path and by_path[p].text]
+        if not legal:
+            return
+
+        combined = "\n".join(f.text for f in legal).lower()
+        doc_list = ", ".join(f"`{f.path}`" for f in legal[:4])
+
+        # (a) Services the code uses that the documents never name.
+        if "privacy" in docs:
+            unnamed = []
+            for signal in self.signals_of("service"):
+                if signal.name in NOT_A_RECIPIENT:
+                    continue
+                terms = SERVICE_ALIASES.get(signal.name, [signal.name.lower()])
+                if not any(term in combined for term in terms):
+                    unnamed.append(signal)
+            if unnamed:
+                names = ", ".join(s.name for s in unnamed)
+                self.add_finding(
+                    "docs.policy-omits-service",
+                    f"Published policy never mentions {len(unnamed)} service(s) in use",
+                    "month",
+                    f"A privacy policy is published, and the text of {doc_list} does not contain "
+                    f"the name of: **{names}**. Each of these appears in the code and receives "
+                    "data. Transparency rules require disclosing the recipients of personal "
+                    "data, and naming them is the accepted way to do it -- but the more "
+                    "immediate problem is that a published policy which omits a recipient is a "
+                    "statement of your practices that is incomplete in a checkable way. This is "
+                    "the failure mode that is worse than having no policy at all: a missing "
+                    "policy is a gap, an inaccurate one is a written misstatement.\n\n"
+                    "The scanner can only tell you a name is absent from the text. It cannot "
+                    "tell you the rest of the document is right -- read it.",
+                    "Add each service to the privacy policy or the subprocessor list, saying "
+                    "what it receives and why. If one of these is no longer in use, remove the "
+                    "dependency rather than leaving it in the code.",
+                    "writing-policies.md",
+                    [e for s in unnamed for e in s.evidence[:1]][:MAX_EVIDENCE])
+
+        # (b) Template brackets that were never filled in.
+        placeholders: list[Evidence] = []
+        for f in legal:
+            seen: set[str] = set()
+            for m in PLACEHOLDER_IN_DOC_RE.finditer(f.text):
+                token = m.group(0)
+                if token in seen:
+                    continue
+                seen.add(token)
+                placeholders.append(Evidence(f.path, line_of(f.text, m.start()), snippet(token)))
+        if placeholders:
+            self.add_finding(
+                "docs.placeholder-published", "Unfilled template brackets in a published document",
+                "month",
+                "A published legal document still contains template placeholders. Beyond looking "
+                "unconsidered, it undermines the document's whole purpose: a policy that clearly "
+                "nobody read is poor evidence that you understood and adopted the practices it "
+                "describes, and it is the first thing an opposing party quotes.",
+                "Fill every bracket, or delete the section it belongs to. A clause about something "
+                "you do not do is a misrepresentation -- deleting it is the right answer more "
+                "often than filling it.",
+                "writing-policies.md", placeholders)
+
+        # (c) A policy with no date, or one that has not been touched in a
+        #     long time while the code kept moving.
+        undated = [f for f in legal if not DATE_MARKER_RE.search(f.text[:2000])]
+        if undated:
+            self.add_finding(
+                "docs.policy-undated", "Published document has no last-updated date", "know",
+                "No 'last updated' or 'effective date' line was found near the top of "
+                f"{', '.join('`' + f.path + '`' for f in undated[:4])}. Users and regulators both "
+                "use that date to know which version of your practices they are reading, and "
+                "you need it to show a material change was communicated before it took effect.",
+                "Add a dated line near the top, and change it whenever the document changes.",
+                "writing-policies.md",
+                [Evidence(f.path, 1, "no last-updated line in the opening section") for f in undated])
+
+        now = datetime.now(timezone.utc)
+        for f in legal:
+            marker = DATE_MARKER_RE.search(f.text[:2000])
+            if not marker:
+                continue
+            when = parse_doc_date(marker.group(1))
+            if not when:
+                continue
+            age = (now - when).days
+            if age < STALE_AFTER_DAYS:
+                continue
+            self.add_finding(
+                "docs.policy-stale", "Published document has not been updated in a long time",
+                "know",
+                f"`{f.path}` says it was last updated {when.date().isoformat()}, about "
+                f"{age // 30} months ago. Documents do not go stale on a timer, but products "
+                "change: a new analytics tool, a new AI feature, a new provider, a new country. "
+                "Any of those makes the published text wrong without anyone editing it.",
+                "Re-read it against the current data inventory. If it is still accurate, say so "
+                "by bumping the date. If it is not, fix it and tell users about material changes.",
+                "writing-policies.md",
+                [Evidence(f.path, line_of(f.text, marker.start()), snippet(marker.group(0)))])
+
     # -- phase 4: synthesise document and mechanism findings ----------------
 
     def synthesise(self, secrets: list[Evidence]) -> None:
@@ -1858,7 +2152,164 @@ PREAMBLE = """\
 """
 
 
-def render_markdown(scan: Scan, generated: str) -> str:
+def scan_git_history(root: Path, limit: int) -> tuple[list[Evidence], str]:
+    """Look for credential formats in added lines across recent history.
+
+    Removing a key from the working tree does not remove it from the repo.
+    It stays in the reflog and in every clone, which is exactly what the
+    working-tree finding tells people -- so it is worth actually checking.
+
+    Returns (evidence, note). The note explains any reason the scan could not
+    run, so a missing git is reported rather than silently passing.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "log", f"-{limit}", "-p", "--no-color",
+             "--no-merges", "--diff-filter=AM", "--unified=0"],
+            capture_output=True, text=True, errors="replace", timeout=180,
+        )
+    except FileNotFoundError:
+        return [], "git is not installed, so history was not scanned"
+    except subprocess.TimeoutExpired:
+        return [], "git log timed out, so history was not fully scanned"
+    except OSError as exc:
+        return [], f"git could not be run ({exc}), so history was not scanned"
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or "").strip().splitlines()
+        reason = detail[0] if detail else f"exit {proc.returncode}"
+        return [], f"git log failed ({reason}), so history was not scanned"
+
+    found: list[Evidence] = []
+    seen: set[tuple[str, str]] = set()
+    commit = ""
+    path = ""
+    for line in proc.stdout.splitlines():
+        if line.startswith("commit "):
+            commit = line[7:14]
+            continue
+        if line.startswith("+++ b/"):
+            path = line[6:]
+            continue
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        if PLACEHOLDER_FILE_RE.search(path) or LOCKFILE_RE.search(path):
+            continue
+        added = line[1:]
+        if re.search(r"(?i)(example|placeholder|redacted|sample|fake|dummy)", added):
+            continue
+        for label, rx in SECRET_PATTERNS:
+            m = rx.search(added)
+            if not m:
+                continue
+            token = m.group(0)
+            if label != "Private key block" and looks_like_placeholder(token):
+                continue
+            key = (label, token)
+            if key in seen:
+                continue
+            seen.add(key)
+            masked = token[:6] + "…" + token[-2:] if len(token) > 14 else token[:4] + "…"
+            found.append(Evidence(path or "(unknown file)", 0,
+                                  f"{label}: {masked} — added in commit {commit}"))
+    return found, ""
+
+
+@dataclass
+class Diff:
+    """What changed since a previous scan.
+
+    The review triggers in COMPLIANCE.md are all of the form "re-run this when
+    X changes". This is what makes that answerable: a new subprocessor since
+    March is exactly the thing nobody notices.
+    """
+    baseline_date: str = ""
+    baseline_project: str = ""
+    new_findings: list[str] = field(default_factory=list)
+    resolved_findings: list[str] = field(default_factory=list)
+    new_services: list[str] = field(default_factory=list)
+    removed_services: list[str] = field(default_factory=list)
+    new_data: list[str] = field(default_factory=list)
+
+    def any_change(self) -> bool:
+        return bool(self.new_findings or self.resolved_findings or self.new_services
+                    or self.removed_services or self.new_data)
+
+    def as_dict(self) -> dict:
+        return {
+            "baseline_date": self.baseline_date,
+            "baseline_project": self.baseline_project,
+            "new_findings": self.new_findings,
+            "resolved_findings": self.resolved_findings,
+            "new_services": self.new_services,
+            "removed_services": self.removed_services,
+            "new_data": self.new_data,
+        }
+
+
+def compare_to_baseline(scan: Scan, path: Path) -> Diff | None:
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"scan.py: could not read baseline {path}: {exc}", file=sys.stderr)
+        return None
+
+    def names(payload: dict, kind: str) -> set[str]:
+        return {s["name"] for s in payload.get("signals", []) if s.get("kind") == kind}
+
+    old_findings = {f["id"] for f in previous.get("findings", [])}
+    now_findings = {f.id for f in scan.findings}
+    old_services = names(previous, "service")
+    now_services = {s.name for s in scan.signals_of("service")}
+    old_data = names(previous, "personal_data")
+    now_data = {s.name for s in scan.signals_of("personal_data")}
+
+    return Diff(
+        baseline_date=previous.get("generated", "an earlier scan"),
+        baseline_project=previous.get("project", ""),
+        new_findings=sorted(now_findings - old_findings),
+        resolved_findings=sorted(old_findings - now_findings),
+        new_services=sorted(now_services - old_services),
+        removed_services=sorted(old_services - now_services),
+        new_data=sorted(now_data - old_data),
+    )
+
+
+def render_diff(diff: Diff) -> list[str]:
+    out = [f"\n## Changes since {diff.baseline_date}\n"]
+    if not diff.any_change():
+        out.append("Nothing changed: same findings, same services, same data categories.\n")
+        return out
+
+    if diff.new_services:
+        out.append(f"**{len(diff.new_services)} new third-party service(s):** "
+                   + ", ".join(f"**{n}**" for n in diff.new_services) + "\n")
+        out.append("Adding a service is a review trigger in its own right. Each one needs to "
+                   "reach the subprocessor list and the privacy policy, and needs its data "
+                   "processing agreement on file.\n")
+    if diff.removed_services:
+        out.append(f"**No longer detected:** {', '.join(diff.removed_services)}. If these are "
+                   "genuinely gone, remove them from the published subprocessor list too -- "
+                   "naming a recipient you no longer use is its own inaccuracy.\n")
+    if diff.new_data:
+        out.append(f"**New personal-data categories:** {', '.join(diff.new_data)}. Each needs a "
+                   "purpose, a lawful basis and a retention period.\n")
+    if diff.new_findings:
+        out.append(f"**{len(diff.new_findings)} new finding(s):**\n")
+        for fid in diff.new_findings:
+            out.append(f"- `{fid}`")
+        out.append("")
+    if diff.resolved_findings:
+        out.append(f"**{len(diff.resolved_findings)} finding(s) no longer reported:**\n")
+        for fid in diff.resolved_findings:
+            out.append(f"- `{fid}`")
+        out.append("")
+        out.append("_No longer reported is not the same as fixed -- a finding also disappears if "
+                   "the code it pointed at was deleted, or if an ignore rule was added._\n")
+    return out
+
+
+def render_markdown(scan: Scan, generated: str, diff: Diff | None = None) -> str:
     counts = Counter(f.severity for f in scan.findings)
     out: list[str] = []
     a = out.append
@@ -1883,6 +2334,9 @@ def render_markdown(scan: Scan, generated: str) -> str:
     if scan.suppressed:
         a(f"_{len(set(scan.suppressed))} finding type(s) suppressed by ignore rules: "
           f"{', '.join('`' + i + '`' for i in sorted(set(scan.suppressed)))}._\n")
+    if diff is not None:
+        out.extend(render_diff(diff))
+
     a("Each finding is tagged with how it was arrived at:\n")
     a("| Tag | Meaning |")
     a("| --- | --- |")
@@ -1988,7 +2442,7 @@ def render_markdown(scan: Scan, generated: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def render_stdout(scan: Scan) -> str:
+def render_stdout(scan: Scan, diff: Diff | None = None) -> str:
     counts = Counter(f.severity for f in scan.findings)
     lines = [f"launch-compliance scan of {scan.display_path} ({len(scan.files)} files)"]
     lines.append(f"  {scan.shape.label()}")
@@ -2002,6 +2456,19 @@ def render_stdout(scan: Scan) -> str:
         lines.append("")
         for f in blocking:
             lines.append(f"  BLOCKING  {f.title}")
+    if diff is not None and diff.any_change():
+        lines.append("")
+        lines.append(f"  since {diff.baseline_date}:")
+        if diff.new_services:
+            lines.append(f"    + services: {', '.join(diff.new_services)}")
+        if diff.removed_services:
+            lines.append(f"    - services: {', '.join(diff.removed_services)}")
+        if diff.new_data:
+            lines.append(f"    + data: {', '.join(diff.new_data)}")
+        if diff.new_findings:
+            lines.append(f"    + {len(diff.new_findings)} new finding(s)")
+        if diff.resolved_findings:
+            lines.append(f"    - {len(diff.resolved_findings)} no longer reported")
     lines.append("")
     lines.append("  Absence is reliable; presence is not -- a document that exists may still be wrong.")
     return "\n".join(lines)
@@ -2025,6 +2492,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true", help="suppress the stdout summary")
     parser.add_argument("--fail-on", choices=["secret", "blocking", "never"], default="secret",
                         help="what makes the exit code non-zero (default: secret)")
+    parser.add_argument("--git-history", nargs="?", type=int, const=500, metavar="N",
+                        help="also scan the last N commits (default 500) for credentials "
+                             "that were committed and later removed. Requires git.")
+    parser.add_argument("--baseline", metavar="FILE",
+                        help="a previous --out JSON file; report what changed since it")
     parser.add_argument("--ignore", metavar="ID[:PATH]", action="append",
                         help="suppress a finding id, optionally only under a path prefix. "
                              "Repeatable. A .launch-compliance-ignore file in the scanned "
@@ -2048,6 +2520,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     secrets = scan.detect_secrets()
     scan.detect_launch_readiness()
     scan.detect_accessibility()
+    scan.detect_document_accuracy()
+
+    if args.git_history:
+        history, note = scan_git_history(root, args.git_history)
+        if note:
+            print(f"scan.py: {note}", file=sys.stderr)
+        if history:
+            scan.add_finding(
+                "secret.in-history", "Credential material in git history", "blocking",
+                f"Credential formats were found in added lines across the last "
+                f"{args.git_history} commits. Removing a key from the working tree does not "
+                "invalidate it: it stays in the reflog, in every clone, and in every fork, "
+                "and on a public repository scanning bots find it within minutes of the push "
+                "that introduced it. Treat every key below as compromised, including ones "
+                "that look long gone.",
+                "Rotate each key at the provider -- that is the step that actually fixes it. "
+                "Rewriting history is optional and does not help on its own, because forks "
+                "and cached views keep the old objects.",
+                "security-baseline.md", history)
+            secrets = secrets + history
+
     scan.synthesise(secrets)
     scan.apply_ignores(scan.load_ignores(args.ignore or ()))
 
@@ -2056,11 +2549,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    diff = compare_to_baseline(scan, Path(args.baseline)) if args.baseline else None
+
     if args.report:
         path = Path(args.report)
         if path.parent != Path(""):
             path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_markdown(scan, generated), encoding="utf-8")
+        path.write_text(render_markdown(scan, generated, diff), encoding="utf-8")
 
     if args.out:
         path = Path(args.out)
@@ -2074,6 +2569,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "files_scanned": len(scan.files),
             "counts": {sev: sum(1 for f in scan.findings if f.severity == sev) for sev in SEVERITIES},
             "suppressed": sorted(set(scan.suppressed)),
+            "diff": diff.as_dict() if diff else None,
             "findings": [f.as_dict() for f in scan.findings],
             "signals": [s.as_dict() for s in scan.signals],
             "caveat": ("Absence is reliable; presence is not. This tool reports signals found in "
@@ -2082,7 +2578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     if not args.quiet:
-        print(render_stdout(scan))
+        print(render_stdout(scan, diff))
 
     if args.fail_on == "never":
         return 0

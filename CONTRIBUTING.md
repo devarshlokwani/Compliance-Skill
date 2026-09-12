@@ -115,13 +115,23 @@ should be a decision rather than a side effect.
 ### Tests
 
 There is no test framework — the fixtures are the tests, and CI asserts against
-them. There are two, because a scanner has two ways to fail: it can miss
-something, or it can cry wolf.
+them. There are four, because a scanner has more than one way to be wrong.
 
 ```bash
 # Detection: a deliberately broken Next.js app. Must exit 0 -- it contains no
 # exposed secrets -- and must produce the full set of expected findings.
 python3 launch-compliance/scripts/scan.py examples/demo-project
+
+# Document accuracy: a published privacy policy that is out of date and omits
+# four services in use. Must fire all four docs.policy-* checks, must NOT
+# report the policy as missing, and must NOT flag Stripe (which the policy
+# names) or Prisma (a local library that receives nothing).
+python3 launch-compliance/scripts/scan.py examples/demo-stale-docs
+
+# Cross-stack: Django. Proves the scanner is not quietly Next.js-only --
+# shape detection, ORM field detection, template-based launch-readiness and
+# accessibility all have to work here.
+python3 launch-compliance/scripts/scan.py examples/demo-django
 
 # False positives: a clean Python library with no web surface. Must produce
 # NOTHING except docs.security-missing.
@@ -134,8 +144,12 @@ python3 launch-compliance/scripts/scan.py . --quiet
 python3 launch-compliance/scripts/scan.py <path> --out scan.json --report scan.md --quiet
 ```
 
-CI enforces both fixtures: the expected-findings list for `demo-project`, and
-the near-silence of `demo-library`.
+CI enforces all four.
+
+**Which fixture does your change belong in?** A new detection goes in
+`demo-project`. A check about documents that already exist goes in
+`demo-stale-docs`. Anything that might be framework-specific should be proven
+in `demo-django` too — if a check only works on JSX, it is not finished.
 
 If you add a check, **add something to `examples/demo-project` that triggers
 it** and **add its id to the expected list** in
@@ -153,6 +167,17 @@ has no favicon is how a scanner trains people to ignore it.
 `pattern` or `inference`. It defaults to `absence`, which is the strongest
 claim, so a finding based on inference that you forget to tag will overstate
 itself.
+
+**Checks on documents that already exist** are welcome, and are the one place
+the scanner is allowed to have an opinion about a file that is present. Keep
+them to claims that absence supports: a name that is not in the text, a bracket
+that was never filled, a date that is not there. Never assert that a document
+*is* accurate — that needs a human, and claiming otherwise breaks the principle
+the whole project rests on.
+
+**Services that receive no data** belong in `NOT_A_RECIPIENT`. A local ORM is
+not a subprocessor, and demanding that a privacy policy name Prisma would train
+people to ignore the check.
 
 ### Regenerating the committed sample
 

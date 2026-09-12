@@ -85,6 +85,97 @@ jobs:
           print(f"All {len(expected)} expected detections fired.")
           PY
 
+      # The documents-that-exist checks. This fixture has a published privacy
+      # policy that is out of date and omits four services in use -- the case
+      # the skill treats as worse than having no policy at all.
+      - name: Check the stale-docs fixture
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          subprocess.run(
+              [sys.executable, "launch-compliance/scripts/scan.py",
+               "examples/demo-stale-docs", "--out", "stale.json", "--quiet"],
+              check=True,
+          )
+          report = json.load(open("stale.json"))
+          found = {f["id"] for f in report["findings"]}
+
+          expected = {
+              "docs.policy-omits-service",
+              "docs.placeholder-published",
+              "docs.policy-stale",
+              "docs.policy-undated",
+          }
+          missing = sorted(expected - found)
+          if missing:
+              print("Document-accuracy checks that stopped firing:")
+              for item in missing:
+                  print(f"  - {item}")
+              sys.exit(1)
+
+          # A policy that exists must NOT be reported as missing.
+          if "docs.privacy-policy-missing" in found:
+              print("Privacy policy exists but was reported missing.")
+              sys.exit(1)
+
+          # Services named in the policy, and local libraries, must not be
+          # listed as omitted -- that is what makes the check trustworthy.
+          omits = next(f for f in report["findings"] if f["id"] == "docs.policy-omits-service")
+          for wrongly_flagged in ("Stripe", "Prisma"):
+              if wrongly_flagged in omits["detail"]:
+                  print(f"{wrongly_flagged} should not be reported as omitted.")
+                  sys.exit(1)
+
+          print(f"All {len(expected)} document-accuracy checks fired correctly.")
+          PY
+
+      # Cross-stack guard: the scanner must not be quietly Next.js-only.
+      - name: Check the Django fixture
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          subprocess.run(
+              [sys.executable, "launch-compliance/scripts/scan.py",
+               "examples/demo-django", "--out", "django.json", "--quiet"],
+              check=True,
+          )
+          report = json.load(open("django.json"))
+          found = {f["id"] for f in report["findings"]}
+          shape = report["project_shape"]
+          signals = report["signals"]
+
+          if "Django" not in shape["frameworks"] or not shape["web"]:
+              print(f"Django project not recognised as a web surface: {shape}")
+              sys.exit(1)
+
+          # Personal data must be found in Django ORM declarations, not just
+          # Prisma schemas.
+          pii = {s["name"] for s in signals if s["kind"] == "personal_data"}
+          for field in ("Email address", "Date of birth", "IP address"):
+              if field not in pii:
+                  print(f"Django ORM field not detected: {field}")
+                  sys.exit(1)
+
+          # Launch-readiness and accessibility must work on server-rendered
+          # templates, not only on JSX.
+          expected = {
+              "launch.og-tags-missing", "launch.framework-title",
+              "launch.insecure-assets", "launch.pre-ticked-consent",
+              "a11y.img-missing-alt", "a11y.div-as-button",
+              "a11y.focus-removed", "a11y.placeholder-as-label",
+          }
+          missing = sorted(expected - found)
+          if missing:
+              print("Checks that do not work on Django templates:")
+              for item in missing:
+                  print(f"  - {item}")
+              sys.exit(1)
+
+          print("Cross-stack checks fired on Django templates.")
+          PY
+
       # The false-positive guard. A library with no web surface, no personal
       # data and no services must stay quiet -- a scanner that cries wolf is a
       # scanner people switch off.

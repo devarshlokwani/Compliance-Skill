@@ -113,7 +113,7 @@ No dependencies, standard library only. It exits non-zero only on an exposed
 secret, which makes it safe to drop in as a pre-deploy gate — see
 [examples/github-workflow.yml](examples/github-workflow.yml).
 
-Three things about the scanner worth knowing:
+Four things about the scanner worth knowing:
 
 **It tags every finding with how it got there** — `absence` (a file isn't
 there, so the claim is reliable), `pattern` (something matched in your source,
@@ -126,10 +126,25 @@ check. A Python library doesn't get told it needs Open Graph tags — the
 launch-readiness checks only run when there's a web surface. A scanner that
 cries wolf is a scanner people switch off.
 
+**It reads legal documents that already exist.** Most tools check whether a
+privacy policy is present and stop. This one checks whether the policy names
+the services your code actually calls, whether `[COMPANY NAME]` shipped
+unfilled, and whether anything has been updated in the last two years. That's
+the case the skill treats as worse than having no policy at all — a missing
+policy is a gap, a published inaccurate one is a written misstatement — and
+it's still an `absence` claim, so it stays reliable.
+
 **Findings you've decided don't apply can be suppressed** with a
 `.launch-compliance-ignore` file — one finding id per line, optionally scoped
 as `id:path/prefix`. This repo [uses one](.launch-compliance-ignore) for its own
-deliberately-broken fixture.
+deliberately-broken fixtures.
+
+Two more flags worth knowing: `--baseline previous-scan.json` reports what
+changed since a previous run (new subprocessors, new data categories, new and
+resolved findings), which is what makes the review triggers in `COMPLIANCE.md`
+answerable. And `--git-history` scans recent commits for credentials that were
+committed and later deleted — removing a key from the working tree never
+invalidated it.
 
 ## What's in here
 
@@ -138,13 +153,15 @@ README.md, LICENSE, CONTRIBUTING.md, DISCLAIMER.md, SECURITY.md
 .launch-compliance-ignore   worked example of the suppression file
 evals/triggering.md         manual harness for the trigger description
 examples/
-  demo-project/        deliberately incomplete Next.js app — tests detection
+  demo-project/        incomplete Next.js app — tests detection
+  demo-stale-docs/     published policy that's out of date and wrong
+  demo-django/         cross-stack check: Django templates and ORM
   demo-library/        clean Python package — tests for false positives
   sample-scan.md       what a real report looks like
   github-workflow.yml  drop-in CI gate
 launch-compliance/     ← the skill; this is what you install
   SKILL.md             the four-phase workflow
-  references/          10 files, loaded on demand
+  references/          11 files, loaded on demand
   assets/              7 annotated document templates
   scripts/scan.py      the scanner, stdlib only
 ```
@@ -152,9 +169,12 @@ launch-compliance/     ← the skill; this is what you install
 See [examples/sample-scan.md](examples/sample-scan.md) for the output of a real
 run against the demo project.
 
-Two fixtures rather than one, because a scanner has two ways to fail:
-`demo-project` proves the checks fire, and `demo-library` proves they stay
-quiet when they don't apply. CI enforces both.
+Four fixtures, because a scanner has more than one way to be wrong.
+`demo-project` proves the checks fire. `demo-stale-docs` proves the
+document-accuracy checks catch a policy that's published and inaccurate, and
+that they don't flag services the policy *does* name. `demo-django` proves the
+scanner isn't quietly Next.js-only. `demo-library` proves it stays quiet when
+nothing applies. CI enforces all four.
 
 ## Scope, honestly
 

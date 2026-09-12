@@ -49,7 +49,9 @@ An `inference` finding presented as settled fact is exactly the failure this ski
 
 If the user has findings they've already decided don't apply, a `.launch-compliance-ignore` file in their repo suppresses them by id — one per line, optionally scoped as `id:path/prefix`. Offer it for genuine non-applicability, never as a way to make a list shorter.
 
-Treat its output as evidence to confirm with the user, not as the final word — it finds signals, not intent. Absence is reliable; presence is not. A privacy policy that exists but doesn't mention the analytics tool actually in use is worse than none, because it is a written false statement — so read the files it flags rather than ticking the box.
+**If legal documents already exist, the scanner reads them.** It reports services in the code that the published policy never names, template brackets like `[COMPANY NAME]` that were shipped unfilled, and documents that are undated or years old. These are `absence` findings and they are reliable — a name is either in the text or it is not. Lead with them when they appear: a policy that is published and wrong is the case this skill exists for, and it is worse than no policy, because a gap is a gap but a published misstatement is checkable.
+
+What the scanner still cannot do is tell you an existing document is *accurate*. It only proves specific things absent from it. So read the documents it flags rather than ticking the box.
 
 Then fill the gaps by asking. Read `references/intake.md` for the question set and, importantly, for what each answer changes. Ask only what you can't already infer; the scanner plus the user's original message usually answers half of it. Keep it to one round of questions if you can — a long interrogation is how people abandon this.
 
@@ -69,6 +71,7 @@ Now map the inventory to obligations. Read the reference file(s) matching the pr
 | touches kids, health, finance, biometrics, employment, or location | `references/high-risk-categories.md` |
 | has a login, a database, or an API (i.e. all of them) | `references/security-baseline.md` |
 | is about to be publicly reachable (i.e. all of them) | `references/launch-readiness.md` |
+| has reached Phase 4, or promises deletion, export or consent | `references/building-mechanisms.md` |
 
 Sort every finding into four buckets and present them this way:
 
@@ -108,6 +111,8 @@ Rules for filling templates:
 ### Phase 4 — Make the promises true
 
 This is where this skill differs from a document generator, and it's the part not to skip.
+
+Read `references/building-mechanisms.md` before building any of it. Deletion in particular is where almost every implementation is quietly incomplete, because the data has spread further than anyone remembers — and the reference has the full list of places to look, the order to delete in, and how to be honest about backups rather than promising erasure you can't perform.
 
 For each commitment in the drafted documents, check whether the mechanism exists — and if it doesn't, offer to build it:
 

@@ -30,6 +30,14 @@ a11y.div-as-button:examples/
 a11y.focus-removed:examples/
 a11y.placeholder-as-label:examples/
 
+# examples/demo-stale-docs ships a deliberately out-of-date privacy policy and
+# undated terms. Those are the fixture for the document-accuracy checks, not
+# documents this repository publishes.
+docs.policy-omits-service:examples/
+docs.placeholder-published:examples/
+docs.policy-stale:examples/
+docs.policy-undated:examples/
+
 # --- The scanner detecting itself ---------------------------------------
 # scan.py contains `document.cookie` and friends as regex literals, so the
 # storage detector matches its own source. A tool that reads code will always

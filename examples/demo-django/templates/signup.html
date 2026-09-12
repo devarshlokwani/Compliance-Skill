@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Create your account</h1>
+
+<form method="post" action="/signup/">
+  {% csrf_token %}
+
+  <input type="email" name="email" placeholder="Work email" required>
+  <input type="tel" name="phone_number" placeholder="Mobile (optional)">
+
+  <label>
+    <input type="checkbox" name="marketing_opt_in" checked>
+    Send me product updates and offers, and I accept the terms
+  </label>
+
+  <button type="submit">Sign up</button>
+</form>
+{% endblock %}

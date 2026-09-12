@@ -1,0 +1,4 @@
+Django==5.1.4
+psycopg2-binary==2.9.10
+stripe==11.4.1
+sentry-sdk==2.19.2
