@@ -1,0 +1,64 @@
+"Commons Clause" License Condition v1.0
+
+The Software is provided to you by the Licensor under the License, as defined
+below, subject to the following condition.
+
+Without limiting other conditions in the License, the grant of rights under the
+License will not include, and the License does not grant to you, the right to
+Sell the Software.
+
+For purposes of the foregoing, "Sell" means practicing any or all of the rights
+granted to you under the License to provide to third parties, for a fee or
+other consideration (including without limitation fees for hosting or
+consulting/support services related to the Software), a product or service
+whose value derives, entirely or substantially, from the functionality of the
+Software. Any license notice or attribution required by the License must also
+include this Commons Clause License Condition notice.
+
+Software: launch-compliance
+License: MIT (below)
+Licensor: Devarsh Lokwani
+
+---
+
+ADDITIONAL PERMISSION — OUTPUT OF THE SOFTWARE
+
+The Licensor grants the following additional permission, which is not a
+restriction and may be relied upon without further notice.
+
+Documents, reports, checklists and configuration produced by using the
+Software — including any privacy policy, terms of service, cookie policy,
+subprocessor list, SECURITY.md, COMPLIANCE.md or scan report generated from or
+adapted from the templates in this repository — are the sole property of the
+person or organisation that generated them. No attribution is required, no
+copyright notice need be carried, and no condition of this license applies to
+them. You may publish and use such output for any purpose, including
+commercial purposes.
+
+For the avoidance of doubt: the Commons Clause condition above restricts
+selling the Software itself. It does not restrict using the Software, or its
+output, in the course of operating a commercial product or business.
+
+---
+
+MIT License
+
+Copyright (c) 2026 Devarsh Lokwani
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

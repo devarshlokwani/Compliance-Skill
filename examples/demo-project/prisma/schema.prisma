@@ -1,0 +1,59 @@
+// Demo schema. Every field here is a row the privacy policy will have to
+// account for -- which is the point of the fixture.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  name             String?
+  avatarUrl        String?
+  phoneNumber      String?
+  dateOfBirth      DateTime?
+  passwordHash     String?
+  stripeCustomerId String?
+  marketingOptIn   Boolean   @default(true)
+  lastLogin        DateTime?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+
+  notes    Note[]
+  uploads  Upload[]
+  sessions Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  ipAddress String?
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model Note {
+  id         String   @id @default(cuid())
+  userId     String
+  transcript String   @db.Text
+  summary    String?  @db.Text
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model Upload {
+  id        String   @id @default(cuid())
+  userId    String
+  fileUrl   String
+  fileName  String
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}

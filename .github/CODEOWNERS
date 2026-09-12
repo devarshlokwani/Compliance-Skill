@@ -1,0 +1,4 @@
+# Every change needs review from the repository owner.
+# Combined with branch protection on main, this is what stops an unwanted
+# merge -- the licence has nothing to do with it.
+* @devarshlokwani

@@ -1,0 +1,18 @@
+This file exists so that the scanner's `repo.license-missing` check does not
+fire on this fixture. It is not the licence for launch-compliance -- see the
+LICENSE file at the repository root for that.
+
+tinyretry is not a real package. Do not use it.
+
+---
+
+MIT License
+
+Copyright (c) 2026 launch-compliance contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, subject to the inclusion of the above
+copyright notice and this permission notice in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

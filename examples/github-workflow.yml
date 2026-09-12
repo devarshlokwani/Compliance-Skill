@@ -1,0 +1,68 @@
+# Drop-in pre-deploy gate for your own project.
+#
+# Copy to .github/workflows/compliance-scan.yml and adjust the path to
+# scan.py -- either vendor the script into your repo, or check the skill out
+# alongside it as shown below.
+#
+# Default behaviour: fails the build only on an exposed secret. Everything else
+# is reported in the job summary and as an artifact, so a missing privacy
+# policy is visible without blocking your deploy. Change --fail-on if you want
+# something stricter.
+
+name: compliance-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the scanner
+        uses: actions/checkout@v4
+        with:
+          repository: devarshlokwani/Compliance-Skill
+          path: .launch-compliance
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Scan
+        id: scan
+        run: |
+          python3 .launch-compliance/launch-compliance/scripts/scan.py . \
+            --out compliance-scan.json \
+            --report compliance-scan.md \
+            --fail-on secret
+
+      # Runs even when the scan fails, so the report is there to read.
+      - name: Add the report to the job summary
+        if: always()
+        run: cat compliance-scan.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-scan
+          path: |
+            compliance-scan.md
+            compliance-scan.json
+
+      # Optional: block the merge on anything blocking, not just secrets.
+      # Expect this to fail until the blocking list is genuinely empty.
+      #
+      # - name: Fail on blocking findings
+      #   run: |
+      #     python3 .launch-compliance/launch-compliance/scripts/scan.py . \
+      #       --quiet --fail-on blocking

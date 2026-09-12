@@ -1,0 +1,24 @@
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+}
+
+/* Someone did not like the blue ring. Nothing replaced it. */
+button,
+a,
+input {
+  outline: none;
+}
+
+.card {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 24px;
+}

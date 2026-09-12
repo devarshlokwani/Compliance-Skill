@@ -1,0 +1,53 @@
+# launch-compliance ignore rules for this repository.
+#
+# This repo is a skill distribution, not a product. examples/demo-project is a
+# deliberately broken Next.js fixture -- its findings are the scanner working
+# as intended, not a to-do list for us. Suppressing them here keeps the
+# self-scan readable, and doubles as a worked example of the ignore file.
+#
+# Format: one finding id per line. Add `:path-prefix` to scope a rule, which
+# drops evidence under that path and drops the finding with it if nothing is
+# left to point at. `#` starts a comment.
+#
+# Rule of thumb for your own project: suppress a finding when you have decided
+# it does not apply, not when you would rather not deal with it. Anything you
+# suppress should have a comment saying why.
+
+# --- Findings that belong to the fixture, scoped to it ------------------
+docs.privacy-policy-missing:examples/
+docs.terms-missing-with-payments:examples/
+docs.subprocessors-missing:examples/
+docs.cookie-policy-missing:examples/
+ai.provider-disclosure:examples/
+risk.special-category:examples/
+content.user-uploads:examples/
+launch.robots-blocks-all:examples/
+launch.framework-title:examples/
+launch.insecure-assets:examples/
+launch.pre-ticked-consent:examples/
+a11y.img-missing-alt:examples/
+a11y.div-as-button:examples/
+a11y.focus-removed:examples/
+a11y.placeholder-as-label:examples/
+
+# --- The scanner detecting itself ---------------------------------------
+# scan.py contains `document.cookie` and friends as regex literals, so the
+# storage detector matches its own source. A tool that reads code will always
+# have this edge where the code is *about* code. Scoped rather than blanket,
+# so the same finding would still fire if it ever came from real source.
+docs.cookie-policy-missing:launch-compliance/scripts/
+
+# --- Absence findings, which have no path to scope them to --------------
+# This repository is classified as a web project because the fixture declares a
+# Next.js dependency. It serves no pages of its own, so none of the following
+# apply to it.
+launch.og-tags-missing
+launch.twitter-tags-missing
+launch.canonical-missing
+launch.meta-description-missing
+launch.favicon-missing
+launch.manifest-missing
+launch.sitemap-missing
+docs.compliance-missing
+mechanism.deletion-missing
+mechanism.export-missing

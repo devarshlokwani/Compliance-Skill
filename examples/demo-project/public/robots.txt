@@ -1,0 +1,3 @@
+# Copied over from the staging deployment and never revisited.
+User-agent: *
+Disallow: /

@@ -1,0 +1,130 @@
+name: self-scan
+
+# The scanner runs against this repository and against the demo fixture.
+#
+# It exits non-zero only on an exposed secret, so this job is a secret gate
+# rather than a compliance gate -- a missing privacy policy will not fail your
+# build, and shouldn't. Use --fail-on blocking if you want the stricter
+# behaviour in your own project.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # No install step: the scanner is standard library only, and this job
+      # is what keeps it that way.
+      - name: Scan this repository
+        run: |
+          python3 launch-compliance/scripts/scan.py . \
+            --out scan.json --report scan.md
+
+      - name: Scan the demo fixture
+        run: |
+          python3 launch-compliance/scripts/scan.py examples/demo-project \
+            --report demo-scan.md --quiet
+
+      - name: Check the demo fixture still triggers its findings
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          subprocess.run(
+              [sys.executable, "launch-compliance/scripts/scan.py",
+               "examples/demo-project", "--out", "demo.json", "--quiet"],
+              check=True,
+          )
+          found = {f["id"] for f in json.load(open("demo.json"))["findings"]}
+
+          # If a detection stops firing on the fixture, it has regressed.
+          expected = {
+              "docs.privacy-policy-missing",
+              "docs.terms-missing-with-payments",
+              "docs.subprocessors-missing",
+              "docs.cookie-policy-missing",
+              "ai.provider-disclosure",
+              "mechanism.deletion-missing",
+              "launch.pre-ticked-consent",
+              "launch.insecure-assets",
+              "launch.robots-blocks-all",
+              "launch.framework-title",
+              "launch.og-tags-missing",
+              "launch.twitter-tags-missing",
+              "launch.canonical-missing",
+              "launch.meta-description-missing",
+              "launch.favicon-missing",
+              "launch.manifest-missing",
+              "launch.sitemap-missing",
+              "a11y.img-missing-alt",
+              "a11y.div-as-button",
+              "a11y.focus-removed",
+              "a11y.placeholder-as-label",
+              "content.user-uploads",
+              "risk.special-category",
+          }
+          missing = sorted(expected - found)
+          if missing:
+              print("Detections that stopped firing on the fixture:")
+              for item in missing:
+                  print(f"  - {item}")
+              sys.exit(1)
+          print(f"All {len(expected)} expected detections fired.")
+          PY
+
+      # The false-positive guard. A library with no web surface, no personal
+      # data and no services must stay quiet -- a scanner that cries wolf is a
+      # scanner people switch off.
+      - name: Check the library fixture stays quiet
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          subprocess.run(
+              [sys.executable, "launch-compliance/scripts/scan.py",
+               "examples/demo-library", "--out", "lib.json", "--quiet"],
+              check=True,
+          )
+          report = json.load(open("lib.json"))
+          found = {f["id"] for f in report["findings"]}
+
+          # SECURITY.md is legitimate advice for any public repository.
+          allowed = {"docs.security-missing"}
+          noise = sorted(found - allowed)
+          if noise:
+              print("False positives on a library with no web surface:")
+              for item in noise:
+                  print(f"  - {item}")
+              sys.exit(1)
+
+          shape = report["project_shape"]
+          if shape["web"]:
+              print(f"Library fixture misclassified as web: {shape}")
+              sys.exit(1)
+
+          print(f"Library fixture clean: {sorted(found)}")
+          PY
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-scan
+          path: |
+            scan.md
+            scan.json
+            demo-scan.md
+          if-no-files-found: warn
