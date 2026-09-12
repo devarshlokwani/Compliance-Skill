@@ -151,6 +151,8 @@ def collect_files(root: Path) -> list[SourceFile]:
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
         for fname in sorted(filenames):
             if len(files) >= MAX_FILES:
+                print(f"scan.py: stopped after {MAX_FILES} files; results are partial. "
+                      f"Scan a subdirectory for complete output.", file=sys.stderr)
                 return files
             abs_path = Path(dirpath) / fname
             try:
@@ -483,8 +485,11 @@ FRAMEWORK_SIGNS: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = [
     ("Django", "web", ("manage.py", "wsgi.py", "asgi.py"), ("django",)),
     ("Rails", "web", ("config.ru", "config/routes.rb"), ()),
     ("Laravel", "web", ("artisan",), ()),
-    ("Phoenix", "web", ("mix.exs",), ()),
-    ("Hugo / Jekyll", "web", ("_config.yml", "hugo.toml", "config.toml"), ()),
+    # mix.exs means Elixir, not necessarily a web app, and config.toml is used
+    # by dozens of unrelated tools. Both need a second signal before they
+    # justify running launch-readiness checks.
+    ("Phoenix", "web", ("_web/router.ex", "_web/endpoint.ex"), ("phoenix",)),
+    ("Hugo / Jekyll", "web", ("_config.yml", "hugo.toml", "hugo.yaml", "_layouts/"), ()),
     ("Express", "api", (), ("express",)),
     ("Fastify", "api", (), ("fastify",)),
     ("NestJS", "api", (), ("@nestjs/core",)),
@@ -496,7 +501,8 @@ FRAMEWORK_SIGNS: list[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = [
 ]
 
 MANIFEST_NAMES = {"package.json", "requirements.txt", "pyproject.toml", "go.mod",
-                  "gemfile", "composer.json", "cargo.toml", "pubspec.yaml", "setup.py"}
+                  "gemfile", "composer.json", "cargo.toml", "pubspec.yaml", "setup.py",
+                  "mix.exs"}
 
 # Where an environment variable is genuinely read or set, across the runtimes
 # and config formats a small project actually uses. `{env}` is the escaped
@@ -847,6 +853,24 @@ SERVICES: list[dict] = [
 # a real codebase, which is slow enough to make people delete the CI step.
 
 
+# Lines are reduced to a set of lowercase alphanumeric words, so that
+# `process.env.STRIPE_SECRET_KEY`, `@stripe/stripe-js` and `api.stripe.com` all
+# yield the word "stripe". A set intersection then rejects irrelevant lines in
+# roughly the time it takes to read them -- far cheaper than a large regex
+# alternation, which retries every branch at every position.
+WORD_RE = re.compile(r"[a-z0-9]+")
+
+# Words too generic to narrow anything down.
+NEEDLE_STOPWORDS = {
+    "api", "app", "apps", "www", "com", "net", "org", "io", "co", "dev", "sh",
+    "cloud", "sdk", "js", "ts", "node", "core", "client", "server", "web",
+    "lib", "libs", "pkg", "src", "key", "keys", "token", "secret", "url",
+    "uri", "host", "port", "user", "users", "data", "test", "main", "index",
+    "http", "https", "public", "private", "next", "react", "vue", "auth",
+    "id", "ids", "read", "write", "get", "set", "new", "the", "and", "for",
+}
+
+
 @dataclass
 class ServiceMatcher:
     name: str
@@ -854,6 +878,10 @@ class ServiceMatcher:
     module_rx: re.Pattern | None
     env_rx: re.Pattern | None
     host_rx: re.Pattern | None
+    # Words that must appear in a line before this service is worth testing.
+    # Empty means "always test" -- a service whose identifiers are all generic
+    # must never be silently skipped.
+    needles: frozenset[str] = frozenset()
 
 
 def _alt(parts: Sequence[str]) -> re.Pattern | None:
@@ -869,6 +897,23 @@ def build_service_matchers() -> list[ServiceMatcher]:
         return _SERVICE_MATCHERS
     built: list[ServiceMatcher] = []
     for svc in SERVICES:
+        # Every identifier must be represented by one of its OWN words, or the
+        # prescreen would silently skip lines the precise patterns would have
+        # matched. Prefer a distinctive word, but never drop an identifier just
+        # because all of its words are generic -- a false negative here is
+        # invisible, which makes it the worst kind.
+        chosen: set[str] = set()
+        unrepresentable = False
+        for group in ("packages", "modules", "envs", "hosts"):
+            for value in svc[group]:
+                words = [w for w in WORD_RE.findall(value.lower()) if len(w) >= 2]
+                if not words:
+                    unrepresentable = True
+                    continue
+                preferred = [w for w in words if w not in NEEDLE_STOPWORDS] or words
+                chosen.add(max(preferred, key=len))
+        # An empty needle set means "always test this service".
+        distinctive = frozenset() if unrepresentable else frozenset(chosen)
         built.append(ServiceMatcher(
             name=svc["name"],
             package_rx=_alt([r"""["']""" + re.escape(p) + r"""[^"']*["']\s*:""" for p in svc["packages"]]
@@ -877,29 +922,22 @@ def build_service_matchers() -> list[ServiceMatcher]:
                             for m in svc["modules"]]),
             env_rx=_alt([ENV_USE_TEMPLATE.format(env=re.escape(e)) for e in svc["envs"]]),
             host_rx=_alt([r"(?://|@|\bhttps?:)[^\s\"'`]*" + re.escape(h) for h in svc["hosts"]]),
+            needles=distinctive,
         ))
     _SERVICE_MATCHERS = built
     return built
 
 
-def _service_needles() -> list[str]:
-    """Literal fragments that must appear before a line is worth examining."""
-    needles: set[str] = set()
-    for svc in SERVICES:
-        for group in ("packages", "modules", "envs", "hosts"):
-            for value in svc[group]:
-                # The shortest distinctive piece: hostnames reduce to their
-                # registrable part, scoped packages to the scope.
-                token = value.strip("@/_-")
-                if not token:
-                    continue
-                needles.add(token.split("/")[0].split(".")[0])
-    return sorted(n for n in needles if len(n) >= 2)
+def service_prescreen_words() -> frozenset[str]:
+    """Union of every service's distinctive words."""
+    union: set[str] = set()
+    for m in build_service_matchers():
+        union.update(m.needles)
+    return frozenset(union)
 
 
-# A single cheap pass that rejects lines mentioning nothing service-shaped.
-SERVICE_PRESCREEN = re.compile(
-    "|".join(re.escape(n) for n in _service_needles()), re.I)
+def line_words(line: str) -> set[str]:
+    return set(WORD_RE.findall(line.lower()))
 
 
 # --------------------------------------------------------------------------
@@ -1366,13 +1404,17 @@ class Scan:
         # either per-service turns a 100k-line project into a minute of regex
         # -- which is the same thing as a broken CI gate.
         matchers = build_service_matchers()
+        prescreen = service_prescreen_words()
         hits_by_name: dict[str, list[Evidence]] = {}
 
         for f in manifests:
             for i, line in enumerate(f.text.splitlines(), 1):
-                if not SERVICE_PRESCREEN.search(line):
+                words = line_words(line)
+                if words.isdisjoint(prescreen):
                     continue
                 for m in matchers:
+                    if m.needles and words.isdisjoint(m.needles):
+                        continue
                     if m.package_rx is not None and m.package_rx.search(line):
                         hits_by_name.setdefault(m.name, []).append(
                             Evidence(f.path, i, snippet(line)))
@@ -1381,11 +1423,14 @@ class Scan:
             for i, line in enumerate(f.text.splitlines(), 1):
                 if len(line) > 500:
                     continue
-                # One cheap pass rejects the ~99% of lines that mention nothing
-                # service-shaped, before any per-service work happens.
-                if not SERVICE_PRESCREEN.search(line):
+                # Reducing the line to its words rejects the ~99% that mention
+                # nothing service-shaped, before any per-service work happens.
+                words = line_words(line)
+                if words.isdisjoint(prescreen):
                     continue
                 for m in matchers:
+                    if m.needles and words.isdisjoint(m.needles):
+                        continue
                     # An env var counts only where it is actually read or
                     # assigned, and a hostname only inside a URL -- not where
                     # the name merely appears in a string. Otherwise any file
@@ -1515,13 +1560,12 @@ class Scan:
         # a real .env in the working tree
         env_present = [p for p in sorted(self.paths)
                        if Path(p).name == ".env" or Path(p).name.startswith((".env.local", ".env.production"))]
-        if env_present:
-            ignored = self.env_is_gitignored()
+        # A .env in the working tree is normal and fine -- as long as git is
+        # ignoring it. Only the unignored case is a finding.
+        if env_present and not self.env_is_gitignored():
             for p in env_present:
-                note = ".env file present in the working tree"
-                if not ignored:
-                    note += " and NOT matched by .gitignore"
-                    exposed.append(Evidence(p, 1, note))
+                exposed.append(Evidence(
+                    p, 1, ".env file present in the working tree and NOT matched by .gitignore"))
 
         return exposed
 
@@ -1921,7 +1965,11 @@ class Scan:
                 "writing-policies.md",
                 [Evidence(f.path, 1, "no last-updated line in the opening section") for f in undated])
 
+        # One finding covering every stale document, rather than one per file:
+        # three identically-titled findings in a report read as noise.
         now = datetime.now(timezone.utc)
+        stale: list[Evidence] = []
+        oldest = 0
         for f in legal:
             marker = DATE_MARKER_RE.search(f.text[:2000])
             if not marker:
@@ -1932,21 +1980,32 @@ class Scan:
             age = (now - when).days
             if age < STALE_AFTER_DAYS:
                 continue
+            oldest = max(oldest, age)
+            stale.append(Evidence(f.path, line_of(f.text, marker.start()),
+                                  f"last updated {when.date().isoformat()} "
+                                  f"({age // 30} months ago)"))
+        if stale:
+            plural = "" if len(stale) == 1 else "s"
             self.add_finding(
-                "docs.policy-stale", "Published document has not been updated in a long time",
-                "know",
-                f"`{f.path}` says it was last updated {when.date().isoformat()}, about "
-                f"{age // 30} months ago. Documents do not go stale on a timer, but products "
-                "change: a new analytics tool, a new AI feature, a new provider, a new country. "
-                "Any of those makes the published text wrong without anyone editing it.",
-                "Re-read it against the current data inventory. If it is still accurate, say so "
+                "docs.policy-stale",
+                f"Published document{plural} not updated in a long time", "know",
+                f"{len(stale)} published document{plural} carry a last-updated date more than "
+                f"{STALE_AFTER_DAYS // 30} months old; the oldest is about {oldest // 30} months. "
+                "Documents do not go stale on a timer, but products change: a new analytics tool, "
+                "a new AI feature, a new provider, a new country. Any of those makes the published "
+                "text wrong without anyone editing it.",
+                "Re-read each against the current data inventory. If it is still accurate, say so "
                 "by bumping the date. If it is not, fix it and tell users about material changes.",
-                "writing-policies.md",
-                [Evidence(f.path, line_of(f.text, marker.start()), snippet(marker.group(0)))])
+                "writing-policies.md", stale)
 
     # -- phase 4: synthesise document and mechanism findings ----------------
 
     def synthesise(self, secrets: list[Evidence]) -> None:
+        # Nothing to scan is not the same as nothing to fix. Telling an empty
+        # directory it needs a LICENSE is the kind of output that makes people
+        # distrust everything else in the report.
+        if not self.files:
+            return
         docs = self.document_presence()
         mech = self.mechanisms()
         pii = self.signals_of("personal_data")
@@ -2264,6 +2323,11 @@ def compare_to_baseline(scan: Scan, path: Path) -> Diff | None:
     old_data = names(previous, "personal_data")
     now_data = {s.name for s in scan.signals_of("personal_data")}
 
+    baseline_project = previous.get("project", "")
+    if baseline_project and baseline_project != scan.display_path:
+        print(f"scan.py: baseline was taken from {baseline_project!r}, not "
+              f"{scan.display_path!r} -- comparing anyway.", file=sys.stderr)
+
     return Diff(
         baseline_date=previous.get("generated", "an earlier scan"),
         baseline_project=previous.get("project", ""),
@@ -2442,6 +2506,19 @@ def render_markdown(scan: Scan, generated: str, diff: Diff | None = None) -> str
     return "\n".join(out) + "\n"
 
 
+def safe_print(text: str) -> None:
+    """Print without letting a legacy console codepage kill the run.
+
+    The reports are already written by this point; losing them to a
+    UnicodeEncodeError on a cp1252 terminal would be an absurd way to fail.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(text.encode(encoding, "replace").decode(encoding, "replace"))
+
+
 def render_stdout(scan: Scan, diff: Diff | None = None) -> str:
     counts = Counter(f.severity for f in scan.findings)
     lines = [f"launch-compliance scan of {scan.display_path} ({len(scan.files)} files)"]
@@ -2551,16 +2628,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     diff = compare_to_baseline(scan, Path(args.baseline)) if args.baseline else None
 
+    def write_output(target: str, content: str, what: str) -> bool:
+        path = Path(target)
+        try:
+            if path.parent != Path(""):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            print(f"scan.py: could not write {what} to {target}: {exc}", file=sys.stderr)
+            return False
+        return True
+
+    wrote_everything = True
+
     if args.report:
-        path = Path(args.report)
-        if path.parent != Path(""):
-            path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_markdown(scan, generated, diff), encoding="utf-8")
+        wrote_everything &= write_output(
+            args.report, render_markdown(scan, generated, diff), "the report")
 
     if args.out:
-        path = Path(args.out)
-        if path.parent != Path(""):
-            path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "scanner_version": SCANNER_VERSION,
             "generated": generated,
@@ -2575,11 +2660,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "caveat": ("Absence is reliable; presence is not. This tool reports signals found in "
                        "source code. It is not legal advice and it is not an audit."),
         }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        wrote_everything &= write_output(
+            args.out, json.dumps(payload, indent=2) + "\n", "the JSON output")
 
     if not args.quiet:
-        print(render_stdout(scan, diff))
+        safe_print(render_stdout(scan, diff))
 
+    # A report that could not be written is a failed run regardless of what
+    # was or wasn't found.
+    if not wrote_everything:
+        return 1
     if args.fail_on == "never":
         return 0
     if args.fail_on == "secret":

@@ -1,0 +1,38 @@
+{
+  "scanner_version": "1.0.0",
+  "generated": "2026-09-12",
+  "project": "examples/demo-library",
+  "project_shape": {
+    "frameworks": [],
+    "web": false,
+    "api": false,
+    "mobile": false,
+    "library": true,
+    "reason": "a package manifest with no web, API or mobile entry point"
+  },
+  "files_scanned": 5,
+  "counts": {
+    "blocking": 0,
+    "month": 0,
+    "know": 1,
+    "polish": 0
+  },
+  "suppressed": [],
+  "diff": null,
+  "findings": [
+    {
+      "id": "docs.security-missing",
+      "title": "No vulnerability disclosure contact",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "There is no SECURITY.md or security.txt. When a researcher finds something, the absence of a named contact is what turns a quiet report into a public disclosure, or into an email to a support address that nobody reads for three weeks.",
+      "fix": "Add `SECURITY.md` with a contact address, what is in scope, the response time you commit to, and whether you permit good-faith testing.",
+      "fix_snippet": "# SECURITY.md at the repository root\n\n## Reporting a vulnerability\nEmail security@example.com. You'll get an acknowledgement within 2 business\ndays and an assessment within 7.\n\nWe won't pursue legal action against good-faith research under this policy.\nPlease don't access data that isn't yours, and give us time to fix it before\ndisclosing publicly.",
+      "reference": "security-baseline.md",
+      "evidence": [],
+      "evidence_count": 0
+    }
+  ],
+  "signals": [],
+  "caveat": "Absence is reliable; presence is not. This tool reports signals found in source code. It is not legal advice and it is not an audit."
+}

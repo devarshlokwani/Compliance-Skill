@@ -1,0 +1,423 @@
+{
+  "scanner_version": "1.0.0",
+  "generated": "2026-09-12",
+  "project": "examples/demo-stale-docs",
+  "project_shape": {
+    "frameworks": [
+      "Express"
+    ],
+    "web": false,
+    "api": true,
+    "mobile": false,
+    "library": false,
+    "reason": "Express (express)"
+  },
+  "files_scanned": 5,
+  "counts": {
+    "blocking": 0,
+    "month": 6,
+    "know": 5,
+    "polish": 1
+  },
+  "suppressed": [],
+  "diff": null,
+  "findings": [
+    {
+      "id": "ai.provider-disclosure",
+      "title": "User data is sent to an AI provider (OpenAI)",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "Calls to a hosted model API were found. Whatever context you pass -- user messages, uploaded documents, rows from your database -- leaves your infrastructure and becomes a cross-border transfer to a subprocessor most users have no idea is involved. 'We use AI' is not a disclosure.",
+      "fix": "Name the provider in the privacy policy and the subprocessor list, say what is sent and why, check in the provider's own settings whether your data trains their models (the default differs between consumer and API tiers), and compare their retention window against what your policy promises.",
+      "fix_snippet": "",
+      "reference": "ai-features.md",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 10,
+          "snippet": "\"openai\": \"^4.77.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "docs.cookie-policy-missing",
+      "title": "Trackers in use with no cookie policy or consent gate",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "Cookies, client-side storage or analytics tags are in use and no cookie policy was found. In the EU and UK, anything beyond strictly necessary storage needs informed consent *before* it is set: the ePrivacy rule bites on the act of storing or reading, whether or not the data is personal. A banner that fires the tag and then asks is the specific pattern regulators keep fining.",
+      "fix": "List every cookie and storage key with its purpose and lifetime. If you serve the EU or UK, gate non-essential tags behind consent and make refusing exactly as easy as accepting.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "docs.placeholder-published",
+      "title": "Unfilled template brackets in a published document",
+      "severity": "month",
+      "basis": "pattern",
+      "detail": "A published legal document still contains template placeholders. Beyond looking unconsidered, it undermines the document's whole purpose: a policy that clearly nobody read is poor evidence that you understood and adopted the practices it describes, and it is the first thing an opposing party quotes.",
+      "fix": "Fill every bracket, or delete the section it belongs to. A clause about something you do not do is a misrepresentation -- deleting it is the right answer more often than filling it.",
+      "fix_snippet": "",
+      "reference": "writing-policies.md",
+      "evidence": [
+        {
+          "file": "legal/privacy-policy.md",
+          "line": 5,
+          "snippet": "[COMPANY NAME]"
+        },
+        {
+          "file": "legal/privacy-policy.md",
+          "line": 36,
+          "snippet": "[PRIVACY EMAIL]"
+        },
+        {
+          "file": "legal/privacy-policy.md",
+          "line": 46,
+          "snippet": "[POSTAL ADDRESS]"
+        },
+        {
+          "file": "legal/terms.md",
+          "line": 3,
+          "snippet": "[COMPANY NAME]"
+        },
+        {
+          "file": "legal/terms.md",
+          "line": 12,
+          "snippet": "[BILLING EMAIL]"
+        },
+        {
+          "file": "legal/terms.md",
+          "line": 18,
+          "snippet": "[PERIOD]"
+        }
+      ],
+      "evidence_count": 7
+    },
+    {
+      "id": "docs.policy-omits-service",
+      "title": "Published policy never mentions 4 service(s) in use",
+      "severity": "month",
+      "basis": "absence",
+      "detail": "A privacy policy is published, and the text of `legal/privacy-policy.md`, `legal/terms.md` does not contain the name of: **PostHog, Sentry, Resend, OpenAI**. Each of these appears in the code and receives data. Transparency rules require disclosing the recipients of personal data, and naming them is the accepted way to do it -- but the more immediate problem is that a published policy which omits a recipient is a statement of your practices that is incomplete in a checkable way. This is the failure mode that is worse than having no policy at all: a missing policy is a gap, an inaccurate one is a written misstatement.\n\nThe scanner can only tell you a name is absent from the text. It cannot tell you the rest of the document is right -- read it.",
+      "fix": "Add each service to the privacy policy or the subprocessor list, saying what it receives and why. If one of these is no longer in use, remove the dependency rather than leaving it in the code.",
+      "fix_snippet": "",
+      "reference": "writing-policies.md",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 11,
+          "snippet": "\"posthog-node\": \"^4.3.0\","
+        },
+        {
+          "file": "package.json",
+          "line": 8,
+          "snippet": "\"@sentry/node\": \"^8.42.0\","
+        },
+        {
+          "file": "package.json",
+          "line": 12,
+          "snippet": "\"resend\": \"^4.0.1\","
+        },
+        {
+          "file": "package.json",
+          "line": 10,
+          "snippet": "\"openai\": \"^4.77.0\","
+        }
+      ],
+      "evidence_count": 4
+    },
+    {
+      "id": "docs.subprocessors-missing",
+      "title": "No subprocessor list",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "5 third-party services were detected in the code. Each one that receives personal data is a processor acting on your behalf, and transparency rules require you to disclose the categories of recipients -- naming them is the accepted way to do that. You will also need this list the first time a business customer sends you a DPA to sign.",
+      "fix": "Publish `legal/subprocessors.md` naming each provider, what it is used for, what data it receives and where it processes. Keep it as a page you update, link it from the privacy policy, and offer notice before you add a new one.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 13,
+          "snippet": "Stripe -- Payments and subscription billing"
+        },
+        {
+          "file": "package.json",
+          "line": 11,
+          "snippet": "PostHog -- Product analytics, session replay, feature flags"
+        },
+        {
+          "file": "package.json",
+          "line": 8,
+          "snippet": "Sentry -- Error and performance monitoring"
+        },
+        {
+          "file": "package.json",
+          "line": 12,
+          "snippet": "Resend -- Transactional email delivery"
+        },
+        {
+          "file": "package.json",
+          "line": 10,
+          "snippet": "OpenAI -- LLM inference"
+        }
+      ],
+      "evidence_count": 5
+    },
+    {
+      "id": "mechanism.deletion-missing",
+      "title": "No account or data deletion path",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "Personal data is stored and nothing in the code looks like a deletion route. Deletion on request is a right under GDPR Art. 17, under every US state comprehensive privacy law, and under APP 11.2 in Australia -- and both mobile app stores now require an in-app account deletion path for any app that lets people create an account. A policy that promises deletion with no mechanism behind it is the worst of both worlds: the obligation without the ability to meet it.",
+      "fix": "Build a deletion endpoint that covers the primary database, uploaded files, backups, logs, caches and third-party copies (analytics, email, support tooling). Decide up front what you must keep for legal reasons, and say exactly that in the policy.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "docs.policy-stale",
+      "title": "Published document not updated in a long time",
+      "severity": "know",
+      "basis": "pattern",
+      "detail": "1 published document carry a last-updated date more than 18 months old; the oldest is about 42 months. Documents do not go stale on a timer, but products change: a new analytics tool, a new AI feature, a new provider, a new country. Any of those makes the published text wrong without anyone editing it.",
+      "fix": "Re-read each against the current data inventory. If it is still accurate, say so by bumping the date. If it is not, fix it and tell users about material changes.",
+      "fix_snippet": "",
+      "reference": "writing-policies.md",
+      "evidence": [
+        {
+          "file": "legal/privacy-policy.md",
+          "line": 3,
+          "snippet": "last updated 2023-03-14 (42 months ago)"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "docs.policy-undated",
+      "title": "Published document has no last-updated date",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "No 'last updated' or 'effective date' line was found near the top of `legal/terms.md`. Users and regulators both use that date to know which version of your practices they are reading, and you need it to show a material change was communicated before it took effect.",
+      "fix": "Add a dated line near the top, and change it whenever the document changes.",
+      "fix_snippet": "",
+      "reference": "writing-policies.md",
+      "evidence": [
+        {
+          "file": "legal/terms.md",
+          "line": 1,
+          "snippet": "no last-updated line in the opening section"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "docs.security-missing",
+      "title": "No vulnerability disclosure contact",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "There is no SECURITY.md or security.txt. When a researcher finds something, the absence of a named contact is what turns a quiet report into a public disclosure, or into an email to a support address that nobody reads for three weeks.",
+      "fix": "Add `SECURITY.md` with a contact address, what is in scope, the response time you commit to, and whether you permit good-faith testing.",
+      "fix_snippet": "# SECURITY.md at the repository root\n\n## Reporting a vulnerability\nEmail security@example.com. You'll get an acknowledgement within 2 business\ndays and an assessment within 7.\n\nWe won't pursue legal action against good-faith research under this policy.\nPlease don't access data that isn't yours, and give us time to fix it before\ndisclosing publicly.",
+      "reference": "security-baseline.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "mechanism.export-missing",
+      "title": "No data export path",
+      "severity": "know",
+      "basis": "inference",
+      "detail": "No data export route was found. Portability is a right under GDPR Art. 20 and most US state laws, but the practical trigger is usually a support email rather than a regulator -- and hand-writing a database query every time does not scale past the first few.",
+      "fix": "Add an export route returning the user's records in a structured, machine-readable format such as JSON or CSV.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "repo.license-missing",
+      "title": "No licence file",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "The repository has no licence. Under default copyright that means nobody may copy, modify or distribute the code -- including the contributor who wanted to send you a fix.",
+      "fix": "Add a LICENSE file. MIT for maximum permissiveness, Apache-2.0 if you also want an express patent grant. If the code is deliberately not open, say so explicitly instead of leaving it ambiguous.",
+      "fix_snippet": "",
+      "reference": "security-baseline.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "docs.compliance-missing",
+      "title": "No compliance checklist in the repo",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "Nothing records what was decided, who owns it, or what should trigger another look. The obligations change when the product changes, and the change that matters is usually small enough that nobody thinks to revisit anything.",
+      "fix": "Write `COMPLIANCE.md` with the open items, owners, dates and review triggers: a new third-party service, a new country, a paid tier, file uploads, an AI feature, a first enterprise customer.",
+      "fix_snippet": "",
+      "reference": "",
+      "evidence": [],
+      "evidence_count": 0
+    }
+  ],
+  "signals": [
+    {
+      "kind": "service",
+      "name": "Stripe",
+      "detail": "Payments and subscription billing",
+      "category": "payments",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 13,
+          "snippet": "\"stripe\": \"^17.5.0\""
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "payment",
+      "name": "Stripe",
+      "detail": "Payments and subscription billing",
+      "category": "payments",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 13,
+          "snippet": "\"stripe\": \"^17.5.0\""
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "service",
+      "name": "PostHog",
+      "detail": "Product analytics, session replay, feature flags",
+      "category": "analytics",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 11,
+          "snippet": "\"posthog-node\": \"^4.3.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "service",
+      "name": "Sentry",
+      "detail": "Error and performance monitoring",
+      "category": "error-tracking",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 8,
+          "snippet": "\"@sentry/node\": \"^8.42.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "service",
+      "name": "Resend",
+      "detail": "Transactional email delivery",
+      "category": "email",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 12,
+          "snippet": "\"resend\": \"^4.0.1\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "service",
+      "name": "OpenAI",
+      "detail": "LLM inference",
+      "category": "ai",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 10,
+          "snippet": "\"openai\": \"^4.77.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "ai",
+      "name": "OpenAI",
+      "detail": "Prompt content -- including any user text, files or context you pass",
+      "category": "ai",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 10,
+          "snippet": "\"openai\": \"^4.77.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "service",
+      "name": "Prisma",
+      "detail": "ORM -- its schema is the best source for your data inventory",
+      "category": "database",
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": 7,
+          "snippet": "\"@prisma/client\": \"^5.22.0\","
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "Email address",
+      "detail": "",
+      "category": "contact",
+      "evidence": [
+        {
+          "file": "prisma/schema.prisma",
+          "line": 12,
+          "snippet": "email String @unique"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "Name",
+      "detail": "",
+      "category": "identity",
+      "evidence": [
+        {
+          "file": "prisma/schema.prisma",
+          "line": 13,
+          "snippet": "fullName String?"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "IP address",
+      "detail": "",
+      "category": "device",
+      "evidence": [
+        {
+          "file": "prisma/schema.prisma",
+          "line": 14,
+          "snippet": "ipAddress String?"
+        }
+      ],
+      "evidence_count": 1
+    }
+  ],
+  "caveat": "Absence is reliable; presence is not. This tool reports signals found in source code. It is not legal advice and it is not an audit."
+}

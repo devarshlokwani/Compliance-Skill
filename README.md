@@ -84,8 +84,12 @@ and upload it under **Settings → Capabilities → Skills**.
 
 ```bash
 cd Compliance-Skill
-zip -r launch-compliance.zip launch-compliance
+zip -r launch-compliance.zip launch-compliance -x '*__pycache__*'
 ```
+
+The `-x` matters if you have run the scanner locally: Python leaves a
+`__pycache__` directory next to `scan.py`, and it has no business inside a
+skill you upload.
 
 The nesting is deliberate: the skill lives in a subdirectory so it can be
 zipped and installed standalone, separate from this distribution wrapper.

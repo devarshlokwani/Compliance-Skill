@@ -1,0 +1,564 @@
+{
+  "scanner_version": "1.0.0",
+  "generated": "2026-09-12",
+  "project": "examples/demo-django",
+  "project_shape": {
+    "frameworks": [
+      "Django"
+    ],
+    "web": true,
+    "api": false,
+    "mobile": false,
+    "library": false,
+    "reason": "Django (manage.py)"
+  },
+  "files_scanned": 7,
+  "counts": {
+    "blocking": 2,
+    "month": 4,
+    "know": 7,
+    "polish": 11
+  },
+  "suppressed": [],
+  "diff": null,
+  "findings": [
+    {
+      "id": "docs.privacy-policy-missing",
+      "title": "Personal data is collected with no privacy policy",
+      "severity": "blocking",
+      "basis": "absence",
+      "detail": "The project handles 6 categories of personal data and no privacy policy was found. A privacy notice is a precondition for lawful processing under GDPR Art. 13-14, required by every US state comprehensive privacy law, required under the Australian Privacy Act's APP 1, and required by both mobile app stores before a listing goes live. It is also the first document any integration partner or business customer asks for.",
+      "fix": "Draft it from the data inventory rather than from a template's guesses: the actual categories, the actual purposes, the actual retention periods, the actual recipients.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 5,
+          "snippet": "email = models.EmailField(unique=True)"
+        },
+        {
+          "file": "subscriptions/models.py",
+          "line": 7,
+          "snippet": "phone_number = models.CharField(max_length=32, blank=True)"
+        },
+        {
+          "file": "subscriptions/models.py",
+          "line": 6,
+          "snippet": "full_name = models.CharField(max_length=200, blank=True)"
+        },
+        {
+          "file": "subscriptions/models.py",
+          "line": 8,
+          "snippet": "date_of_birth = models.DateField(null=True, blank=True)"
+        }
+      ],
+      "evidence_count": 4
+    },
+    {
+      "id": "docs.terms-missing-with-payments",
+      "title": "Taking money with no terms of service",
+      "severity": "blocking",
+      "basis": "absence",
+      "detail": "A payment integration is present and no terms of service were found. Without terms there is no agreed refund policy, no limitation of liability, no chosen governing law and no stated right to suspend an abusive account. If billing recurs, several jurisdictions additionally require specific pre-purchase disclosure and a cancellation path at least as easy as the signup path.",
+      "fix": "Write terms covering subscription mechanics, renewal and cancellation, refunds, acceptable use, suspension, liability and governing law -- then make the cancellation flow match what they promise.",
+      "fix_snippet": "",
+      "reference": "payments-and-billing.md",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 3,
+          "snippet": "stripe==11.4.1"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "docs.subprocessors-missing",
+      "title": "No subprocessor list",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "2 third-party services were detected in the code. Each one that receives personal data is a processor acting on your behalf, and transparency rules require you to disclose the categories of recipients -- naming them is the accepted way to do that. You will also need this list the first time a business customer sends you a DPA to sign.",
+      "fix": "Publish `legal/subprocessors.md` naming each provider, what it is used for, what data it receives and where it processes. Keep it as a page you update, link it from the privacy policy, and offer notice before you add a new one.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 3,
+          "snippet": "Stripe -- Payments and subscription billing"
+        },
+        {
+          "file": "project/settings.py",
+          "line": 14,
+          "snippet": "Sentry -- Error and performance monitoring"
+        }
+      ],
+      "evidence_count": 2
+    },
+    {
+      "id": "launch.insecure-assets",
+      "title": "Assets referenced over http://",
+      "severity": "month",
+      "basis": "pattern",
+      "detail": "One or more assets load over plain http. Browsers block mixed active content outright and downgrade or warn on passive content, so on launch day these either fail silently or put a security warning in front of your users.",
+      "fix": "Switch every reference to https, or self-host the asset.",
+      "fix_snippet": "",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/base.html",
+          "line": 7,
+          "snippet": "href=\"http://cdn.oldhost.example"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "launch.pre-ticked-consent",
+      "title": "Consent checkbox is pre-ticked",
+      "severity": "month",
+      "basis": "pattern",
+      "detail": "A consent or marketing checkbox is checked by default. Under GDPR consent has to be a freely given, specific, informed and unambiguous affirmative action -- a pre-ticked box is named in the recitals as exactly what does not qualify. It is also one of the most commonly enforced points precisely because it is visible from outside the product.",
+      "fix": "Default the box to unchecked, keep marketing consent separate from accepting the terms, and record when and how each user consented.",
+      "fix_snippet": "// Before -- not valid consent under GDPR, and it bundles two separate things\n<input type=\"checkbox\" name=\"marketingOptIn\" defaultChecked />\nSend me product updates, and I accept the terms\n\n// After -- unticked, and the two are separated\n<input type=\"checkbox\" name=\"marketingOptIn\" />\nSend me occasional product updates (optional)\n\n<input type=\"checkbox\" name=\"acceptedTerms\" required />\nI accept the <a href=\"/terms\">terms</a> and <a href=\"/privacy\">privacy policy</a>\n\n// Record what they consented to, when, and to which version of the text.",
+      "reference": "privacy-law.md",
+      "evidence": [
+        {
+          "file": "templates/signup.html",
+          "line": 13,
+          "snippet": "<input type=\"checkbox\" name=\"marketing_opt_in\" checked>"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "mechanism.deletion-missing",
+      "title": "No account or data deletion path",
+      "severity": "month",
+      "basis": "inference",
+      "detail": "Personal data is stored and nothing in the code looks like a deletion route. Deletion on request is a right under GDPR Art. 17, under every US state comprehensive privacy law, and under APP 11.2 in Australia -- and both mobile app stores now require an in-app account deletion path for any app that lets people create an account. A policy that promises deletion with no mechanism behind it is the worst of both worlds: the obligation without the ability to meet it.",
+      "fix": "Build a deletion endpoint that covers the primary database, uploaded files, backups, logs, caches and third-party copies (analytics, email, support tooling). Decide up front what you must keep for legal reasons, and say exactly that in the policy.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "a11y.div-as-button",
+      "title": "Clickable div or span used instead of a button",
+      "severity": "know",
+      "basis": "pattern",
+      "detail": "An element with an `onClick` handler is neither a button nor a link and carries no role or tab index. It cannot be reached by keyboard, is not announced as interactive, and does not respond to Enter or Space. WCAG 2.1.1 and 4.1.2.",
+      "fix": "Use a real `<button type=\"button\">`. If the markup genuinely cannot change, add `role=\"button\"`, `tabIndex={0}` and a key handler for Enter and Space.",
+      "fix_snippet": "// Before\n<div onClick={handleClick}>See how it works</div>\n\n// After -- keyboard accessible and announced correctly, for free\n<button type=\"button\" onClick={handleClick}>See how it works</button>\n\n// If the markup genuinely cannot change:\n<div\n  role=\"button\"\n  tabIndex={0}\n  onClick={handleClick}\n  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}\n>",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/base.html",
+          "line": 16,
+          "snippet": "<div onclick=\"location.href='/pricing/'\">"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "a11y.focus-removed",
+      "title": "Focus indicator removed with no replacement",
+      "severity": "know",
+      "basis": "pattern",
+      "detail": "`outline: none` appears in a stylesheet that never defines a `:focus-visible` style. Keyboard users then have no way to see where they are, which makes forms and navigation effectively unusable without a mouse. WCAG 2.4.7.",
+      "fix": "Replace the default ring rather than deleting it: pair `outline: none` with a `:focus-visible` rule that draws something clearly visible against your background.",
+      "fix_snippet": "/* Replace the ring instead of deleting it. :focus-visible only shows it for\n   keyboard users, which is the reason people reach for `outline: none`. */\nbutton:focus-visible,\na:focus-visible,\ninput:focus-visible {\n  outline: 2px solid currentColor;\n  outline-offset: 2px;\n}",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/base.html",
+          "line": 9,
+          "snippet": "outline: none"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "a11y.img-missing-alt",
+      "title": "Images without alt text",
+      "severity": "know",
+      "basis": "pattern",
+      "detail": "One or more image elements have no `alt` attribute, so screen readers announce the file name instead. This is WCAG 1.1.1 Level A -- the single most frequently cited failure in US ADA web accessibility complaints, and in scope for the European Accessibility Act for consumer-facing services.",
+      "fix": "Add `alt` text describing the image's purpose, or `alt=\"\"` if it is purely decorative so assistive technology skips it.",
+      "fix_snippet": "<img src=\"/hero.png\" alt=\"The dashboard, showing this week's meeting summaries\" />\n\n<!-- Decorative only? An empty alt is a decision; a missing one is an omission. -->\n<img src=\"/divider.svg\" alt=\"\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/base.html",
+          "line": 14,
+          "snippet": "<img src=\"{% static 'logo.png' %}\" width=\"120\" height=\"32\">"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "docs.security-missing",
+      "title": "No vulnerability disclosure contact",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "There is no SECURITY.md or security.txt. When a researcher finds something, the absence of a named contact is what turns a quiet report into a public disclosure, or into an email to a support address that nobody reads for three weeks.",
+      "fix": "Add `SECURITY.md` with a contact address, what is in scope, the response time you commit to, and whether you permit good-faith testing.",
+      "fix_snippet": "# SECURITY.md at the repository root\n\n## Reporting a vulnerability\nEmail security@example.com. You'll get an acknowledgement within 2 business\ndays and an assessment within 7.\n\nWe won't pursue legal action against good-faith research under this policy.\nPlease don't access data that isn't yours, and give us time to fix it before\ndisclosing publicly.",
+      "reference": "security-baseline.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "mechanism.export-missing",
+      "title": "No data export path",
+      "severity": "know",
+      "basis": "inference",
+      "detail": "No data export route was found. Portability is a right under GDPR Art. 20 and most US state laws, but the practical trigger is usually a support email rather than a regulator -- and hand-writing a database query every time does not scale past the first few.",
+      "fix": "Add an export route returning the user's records in a structured, machine-readable format such as JSON or CSV.",
+      "fix_snippet": "",
+      "reference": "privacy-law.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "repo.license-missing",
+      "title": "No licence file",
+      "severity": "know",
+      "basis": "absence",
+      "detail": "The repository has no licence. Under default copyright that means nobody may copy, modify or distribute the code -- including the contributor who wanted to send you a fix.",
+      "fix": "Add a LICENSE file. MIT for maximum permissiveness, Apache-2.0 if you also want an express patent grant. If the code is deliberately not open, say so explicitly instead of leaving it ambiguous.",
+      "fix_snippet": "",
+      "reference": "security-baseline.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "risk.special-category",
+      "title": "Possible high-risk data categories: Date of birth",
+      "severity": "know",
+      "basis": "inference",
+      "detail": "Field names suggest data that carries obligations beyond the general privacy regime: special-category data under GDPR Art. 9, sector rules such as HIPAA or GLBA, biometric statutes such as Illinois BIPA (which carries a private right of action and per-scan damages), or children's data under COPPA and the age-appropriate design codes. These are the categories where a generated policy is not adequate.",
+      "fix": "First confirm you actually hold this data -- field names lie in both directions. If you do, this is the part to take to a lawyer; the exposure is wildly out of proportion to the cost of one conversation.",
+      "fix_snippet": "",
+      "reference": "high-risk-categories.md",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 8,
+          "snippet": "date_of_birth = models.DateField(null=True, blank=True)"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "a11y.placeholder-as-label",
+      "title": "Input labelled only by its placeholder",
+      "severity": "polish",
+      "basis": "pattern",
+      "detail": "An input has a placeholder but no associated label or aria-label. The placeholder disappears the moment someone types, so anyone interrupted mid-form loses the only indication of what the field was for, and screen readers may not announce it at all. WCAG 3.3.2.",
+      "fix": "Add a `<label htmlFor=...>` -- visually hidden if the design needs it -- or an `aria-label`. Keep the placeholder for an example value, not for the field name.",
+      "fix_snippet": "// Before -- the label vanishes as soon as they type\n<input type=\"email\" placeholder=\"Work email\" />\n\n// After\n<label htmlFor=\"email\">Work email</label>\n<input id=\"email\" type=\"email\" placeholder=\"you@company.com\" />\n\n/* If the design has no room for a visible label, hide it from sight only --\n   never use display:none, which hides it from screen readers too. */\n.sr-only {\n  position: absolute; width: 1px; height: 1px;\n  padding: 0; margin: -1px; overflow: hidden;\n  clip: rect(0 0 0 0); white-space: nowrap; border: 0;\n}",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/signup.html",
+          "line": 9,
+          "snippet": "<input type=\"email\" name=\"email\" placeholder=\"Work email\" required>"
+        },
+        {
+          "file": "templates/signup.html",
+          "line": 10,
+          "snippet": "<input type=\"tel\" name=\"phone_number\" placeholder=\"Mobile (optional)\">"
+        }
+      ],
+      "evidence_count": 2
+    },
+    {
+      "id": "docs.compliance-missing",
+      "title": "No compliance checklist in the repo",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "Nothing records what was decided, who owns it, or what should trigger another look. The obligations change when the product changes, and the change that matters is usually small enough that nobody thinks to revisit anything.",
+      "fix": "Write `COMPLIANCE.md` with the open items, owners, dates and review triggers: a new third-party service, a new country, a paid tier, file uploads, an AI feature, a first enterprise customer.",
+      "fix_snippet": "",
+      "reference": "",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.canonical-missing",
+      "title": "No canonical URLs",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No canonical URL is declared. If the site answers on more than one hostname -- apex and www, a preview deployment domain, http and https -- search engines treat each as a separate site and split ranking signals between them.",
+      "fix": "Set `metadataBase` plus `alternates: { canonical: '/' }` in Next.js metadata, or add `<link rel=\"canonical\">` to the document head.",
+      "fix_snippet": "// Next.js metadata\nmetadataBase: new URL('https://example.com'),\nalternates: { canonical: '/' },\n\n<!-- plain HTML -->\n<link rel=\"canonical\" href=\"https://example.com/\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.favicon-missing",
+      "title": "No favicon",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No favicon or app icon. Browsers fall back to a blank document icon in tabs, bookmarks and history -- the site looks broken next to every other open tab.",
+      "fix": "Add `app/icon.png` (Next.js) or `public/favicon.ico`, plus a 180x180 `apple-touch-icon.png` for iOS home screens.",
+      "fix_snippet": "# Next.js App Router picks these up by filename -- no markup needed:\napp/icon.png              # 512x512 works everywhere\napp/apple-icon.png        # 180x180, for iOS home screens\n\n<!-- anything else -->\n<link rel=\"icon\" href=\"/favicon.ico\" sizes=\"any\" />\n<link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.framework-title",
+      "title": "Default framework title still in place",
+      "severity": "polish",
+      "basis": "pattern",
+      "detail": "The page title is still the scaffold default. It shows in browser tabs, bookmarks, search results and every link preview -- it is the first thing that says nobody finished this.",
+      "fix": "Set a real `title`, and a `title.template` so child pages inherit a consistent suffix.",
+      "fix_snippet": "",
+      "reference": "launch-readiness.md",
+      "evidence": [
+        {
+          "file": "templates/base.html",
+          "line": 6,
+          "snippet": "<title>Document</title>"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "id": "launch.manifest-missing",
+      "title": "No web app manifest",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No web app manifest. The site cannot be installed to a home screen, and Android share targets and splash screens fall back to the bare URL.",
+      "fix": "Add `app/manifest.ts` or `public/site.webmanifest` with name, short_name, icons, theme_color and display.",
+      "fix_snippet": "// Next.js app/manifest.ts\nimport type { MetadataRoute } from 'next'\n\nexport default function manifest(): MetadataRoute.Manifest {\n  return {\n    name: 'Product name',\n    short_name: 'Product',\n    start_url: '/',\n    display: 'standalone',\n    background_color: '#ffffff',\n    theme_color: '#000000',\n    icons: [{ src: '/icon-512.png', sizes: '512x512', type: 'image/png' }],\n  }\n}",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.meta-description-missing",
+      "title": "No meta description",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No meta description. Search engines will synthesise one from page text, usually badly, and you lose control of the single line most people read before deciding whether to click.",
+      "fix": "Add a 140-160 character description to the root metadata and override it per page where it matters.",
+      "fix_snippet": "// Next.js metadata -- 140-160 characters\ndescription: 'What it does and who it is for, in one sentence someone would repeat.',\n\n<!-- plain HTML -->\n<meta name=\"description\" content=\"...\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.og-tags-missing",
+      "title": "No Open Graph tags",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No Open Graph metadata. Every link shared to Slack, iMessage, LinkedIn, Discord or X renders as a bare grey box with a URL under it. This is the most visible launch-day defect there is and it takes about ten minutes to fix.",
+      "fix": "Set `openGraph: { title, description, url, images: [...] }` in your root metadata, or add `og:title`, `og:description`, `og:image` and `og:url` meta tags. Use a 1200x630 image and check it with a preview debugger before you post anywhere.",
+      "fix_snippet": "// Next.js app/layout.tsx\nexport const metadata = {\n  metadataBase: new URL('https://example.com'),   // makes relative image paths absolute\n  openGraph: {\n    title: 'Product name',\n    description: 'One sentence someone would repeat to a colleague.',\n    url: 'https://example.com',\n    siteName: 'Product name',\n    images: [{ url: '/og.png', width: 1200, height: 630 }],\n    type: 'website',\n  },\n}\n\n<!-- plain HTML equivalent; og:image MUST be an absolute URL -->\n<meta property=\"og:title\"       content=\"Product name\" />\n<meta property=\"og:description\" content=\"One sentence.\" />\n<meta property=\"og:image\"       content=\"https://example.com/og.png\" />\n<meta property=\"og:url\"         content=\"https://example.com\" />\n<meta property=\"og:type\"        content=\"website\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.robots-missing",
+      "title": "No robots.txt",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "There is no robots.txt. Crawlers will index anything they can reach, including staging routes, admin pages and any API endpoint that happens to return HTML.",
+      "fix": "Add `public/robots.txt` (or `app/robots.ts`): allow your public pages, disallow `/api/`, `/admin/` and preview routes, and reference the sitemap.",
+      "fix_snippet": "# public/robots.txt\nUser-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\n\nSitemap: https://example.com/sitemap.xml",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.sitemap-missing",
+      "title": "No sitemap",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "Nothing in the project generates a sitemap. Crawlers will still find linked pages, but discovery of new ones is slower and you lose the coverage reporting in Search Console that makes indexing problems visible in the first place.",
+      "fix": "Add `app/sitemap.ts` (Next.js), a static `public/sitemap.xml`, or your framework's equivalent, and point robots.txt at it.",
+      "fix_snippet": "// Next.js app/sitemap.ts\nimport type { MetadataRoute } from 'next'\n\nexport default function sitemap(): MetadataRoute.Sitemap {\n  return [\n    { url: 'https://example.com',          lastModified: new Date(), priority: 1 },\n    { url: 'https://example.com/pricing',  lastModified: new Date() },\n  ]\n}",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    },
+    {
+      "id": "launch.twitter-tags-missing",
+      "title": "No Twitter/X card tags",
+      "severity": "polish",
+      "basis": "absence",
+      "detail": "No `twitter:card` metadata. X and several other clients fall back to Open Graph, but without `summary_large_image` you get the small thumbnail card instead of the large one.",
+      "fix": "Add `twitter: { card: 'summary_large_image', title, description, images }` to your metadata, or the equivalent meta tags.",
+      "fix_snippet": "// Next.js metadata\ntwitter: {\n  card: 'summary_large_image',\n  title: 'Product name',\n  description: 'One sentence.',\n  images: ['/og.png'],\n}\n\n<!-- plain HTML -->\n<meta name=\"twitter:card\" content=\"summary_large_image\" />",
+      "reference": "launch-readiness.md",
+      "evidence": [],
+      "evidence_count": 0
+    }
+  ],
+  "signals": [
+    {
+      "kind": "service",
+      "name": "Stripe",
+      "detail": "Payments and subscription billing",
+      "category": "payments",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 3,
+          "snippet": "stripe==11.4.1"
+        },
+        {
+          "file": "project/settings.py",
+          "line": 11,
+          "snippet": "STRIPE_SECRET_KEY = os.environ[\"STRIPE_SECRET_KEY\"]"
+        }
+      ],
+      "evidence_count": 2
+    },
+    {
+      "kind": "payment",
+      "name": "Stripe",
+      "detail": "Payments and subscription billing",
+      "category": "payments",
+      "evidence": [
+        {
+          "file": "requirements.txt",
+          "line": 3,
+          "snippet": "stripe==11.4.1"
+        },
+        {
+          "file": "project/settings.py",
+          "line": 11,
+          "snippet": "STRIPE_SECRET_KEY = os.environ[\"STRIPE_SECRET_KEY\"]"
+        }
+      ],
+      "evidence_count": 2
+    },
+    {
+      "kind": "service",
+      "name": "Sentry",
+      "detail": "Error and performance monitoring",
+      "category": "error-tracking",
+      "evidence": [
+        {
+          "file": "project/settings.py",
+          "line": 14,
+          "snippet": "dsn=os.environ[\"SENTRY_DSN\"],"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "Email address",
+      "detail": "",
+      "category": "contact",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 5,
+          "snippet": "email = models.EmailField(unique=True)"
+        },
+        {
+          "file": "templates/signup.html",
+          "line": 9,
+          "snippet": "<input type=\"email\" name=\"email\" placeholder=\"Work email\" required>"
+        },
+        {
+          "file": "templates/signup.html",
+          "line": 9,
+          "snippet": "<input type=\"email\" name=\"email\" placeholder=\"Work email\" required>"
+        }
+      ],
+      "evidence_count": 3
+    },
+    {
+      "kind": "personal_data",
+      "name": "Phone number",
+      "detail": "",
+      "category": "contact",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 7,
+          "snippet": "phone_number = models.CharField(max_length=32, blank=True)"
+        },
+        {
+          "file": "templates/signup.html",
+          "line": 10,
+          "snippet": "<input type=\"tel\" name=\"phone_number\" placeholder=\"Mobile (optional)\">"
+        },
+        {
+          "file": "templates/signup.html",
+          "line": 10,
+          "snippet": "<input type=\"tel\" name=\"phone_number\" placeholder=\"Mobile (optional)\">"
+        }
+      ],
+      "evidence_count": 3
+    },
+    {
+      "kind": "personal_data",
+      "name": "Name",
+      "detail": "",
+      "category": "identity",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 6,
+          "snippet": "full_name = models.CharField(max_length=200, blank=True)"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "Date of birth",
+      "detail": "high risk",
+      "category": "identity",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 8,
+          "snippet": "date_of_birth = models.DateField(null=True, blank=True)"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "IP address",
+      "detail": "",
+      "category": "device",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 9,
+          "snippet": "ip_address = models.GenericIPAddressField(null=True, blank=True)"
+        }
+      ],
+      "evidence_count": 1
+    },
+    {
+      "kind": "personal_data",
+      "name": "User agent",
+      "detail": "",
+      "category": "device",
+      "evidence": [
+        {
+          "file": "subscriptions/models.py",
+          "line": 10,
+          "snippet": "user_agent = models.TextField(blank=True)"
+        }
+      ],
+      "evidence_count": 1
+    }
+  ],
+  "caveat": "Absence is reliable; presence is not. This tool reports signals found in source code. It is not legal advice and it is not an audit."
+}

@@ -175,6 +175,21 @@ that was never filled, a date that is not there. Never assert that a document
 *is* accurate — that needs a human, and claiming otherwise breaks the principle
 the whole project rests on.
 
+**Keep the scanner fast.** It is a pre-deploy gate; a gate people wait on is a
+gate people delete. Two rules make the difference, and CI enforces the result:
+
+- **Compile patterns once, outside the line loop.** Building a pattern string
+  per line costs tens of millions of `re.escape` calls on a real codebase.
+- **Walk the files once.** Nesting the file walk inside a per-service or
+  per-token loop rescans everything 80 times.
+
+New detections that run per line should go behind a prescreen — a cheap test
+that rejects lines which cannot possibly match. `line_words()` plus a set
+intersection is the pattern used for services. **A prescreen that is too
+aggressive makes the scanner silently blind**, so if you add one, extend the
+prescreen soundness check in `.github/workflows/self-scan.yml` to prove every
+identifier still reaches its matcher.
+
 **Services that receive no data** belong in `NOT_A_RECIPIENT`. A local ORM is
 not a subprocessor, and demanding that a privacy policy name Prisma would train
 people to ignore the check.

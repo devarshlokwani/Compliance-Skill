@@ -26,6 +26,63 @@ jobs:
         with:
           python-version: '3.11'
 
+      # The scanner skips lines that cannot match, for speed. If a needle set
+      # ever stops covering its own service's identifiers, the scanner goes
+      # quietly blind to that service -- no error, just a missing finding.
+      # This is the regression guard for that.
+      - name: Check the prescreen cannot hide a detection
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "launch-compliance/scripts")
+          import scan
+
+          missed = []
+          for matcher, svc in zip(scan.build_service_matchers(), scan.SERVICES):
+              if not matcher.needles:
+                  continue  # empty means "always test", which is safe
+              identifiers = svc["packages"] + svc["modules"] + svc["envs"] + svc["hosts"]
+              for identifier in identifiers:
+                  if scan.line_words(identifier).isdisjoint(matcher.needles):
+                      missed.append(f"{svc['name']}: {identifier}")
+
+          if missed:
+              print("Identifiers the prescreen would skip before matching:")
+              for item in missed:
+                  print(f"  - {item}")
+              sys.exit(1)
+          print(f"Prescreen covers all identifiers for {len(scan.SERVICES)} services.")
+          PY
+
+      # A CI gate people wait on is a CI gate people delete.
+      - name: Check the scanner is fast enough to sit in CI
+        run: |
+          python3 - <<'PY'
+          import pathlib, random, string, subprocess, sys, tempfile, time
+
+          random.seed(7)
+          root = pathlib.Path(tempfile.mkdtemp()) / "bench"
+          (root / "src").mkdir(parents=True)
+          (root / "package.json").write_text('{"name":"b","dependencies":{"next":"^15.0.0"}}')
+          for i in range(200):
+              lines = [f"// module {i}", "import { useState } from 'react';"]
+              for j in range(250):
+                  blob = "".join(random.choice(string.ascii_letters) for _ in range(12))
+                  lines.append(f"const value{j} = compute({j}, '{blob}');")
+              (root / "src" / f"mod{i}.ts").write_text("\n".join(lines))
+
+          start = time.perf_counter()
+          subprocess.run(
+              [sys.executable, "launch-compliance/scripts/scan.py", str(root), "--quiet"],
+              check=True,
+          )
+          elapsed = time.perf_counter() - start
+          print(f"50k lines scanned in {elapsed:.1f}s")
+          if elapsed > 30:
+              print("Too slow for a pre-deploy gate; something is scanning quadratically.")
+              sys.exit(1)
+          PY
+
       # No install step: the scanner is standard library only, and this job
       # is what keeps it that way.
       - name: Scan this repository

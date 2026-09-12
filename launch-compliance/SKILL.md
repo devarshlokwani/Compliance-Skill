@@ -88,17 +88,18 @@ Be honest about which bucket things go in. Inflating everything to blocking gets
 
 Templates live in `assets/`. Read `references/writing-policies.md` before using them — it covers how to fill them without producing the vague boilerplate that provides no legal protection and no user clarity.
 
-Standard output set:
+Standard output set, and the template each one comes from:
 
-```
-legal/
-  privacy-policy.md
-  terms-of-service.md
-  cookie-policy.md          (only if cookies/trackers beyond strictly necessary)
-  subprocessors.md          (the third-party list from Phase 1)
-SECURITY.md                 (vulnerability disclosure contact and policy)
-COMPLIANCE.md               (the checklist from Phase 2, with owners and dates)
-```
+| Write this | From this template |
+| --- | --- |
+| `legal/privacy-policy.md` | `assets/privacy-policy.md` |
+| `legal/terms-of-service.md` | `assets/terms-of-service.md` |
+| `legal/cookie-policy.md` — only if there are cookies or trackers beyond strictly necessary | `assets/cookie-policy.md` |
+| `legal/subprocessors.md` — the third-party list from Phase 1 | `assets/subprocessors.md` |
+| `SECURITY.md` at the repo root — vulnerability disclosure contact and policy | `assets/security-md.md` |
+| `COMPLIANCE.md` at the repo root — the Phase 2 checklist with owners, dates and review triggers | `assets/compliance-md.md` |
+
+Every template carries its own filling instructions in HTML comments. Read them, then delete them — they must not survive into a published document.
 
 Rules for filling templates:
 
